@@ -2,8 +2,8 @@
   "id": "private-companion",
   "apiVersion": 3,
   "name": "我会永远陪着你（QQ Agent 移植版）",
-  "version": "0.2.0",
-  "description": "原作 menglimi 的 AstrBot 插件「我会永远陪着你」的 QQ Agent 移植版：副 API 维护角色的生活长任务并挂进对话背景，按不规则间隔提示主模型主动联系；私聊按日期记日记；可连安卓陪伴终端共享手机状态。",
+  "version": "0.3.0",
+  "description": "原作 menglimi 的 AstrBot 插件「我会永远陪着你」的 QQ Agent 移植版：生活长任务、主动联系、私聊日记、熟人卡、互动纪念日、梦境、手机连接，附「陪伴小屋」页面。",
   "author": "menglimi（原作） · yyyyyfl6（QQ Agent 移植）",
   "homepage": "https://github.com/yyyyyfl6/astrbot_plugin_private_companion",
   "entry": "index.mjs",
@@ -21,7 +21,8 @@
     "context",
     "wake",
     "secrets",
-    "inbound"
+    "inbound",
+    "page"
   ],
   "tools": [
     {
@@ -45,6 +46,31 @@
           "keyword": {
             "type": "string",
             "description": "关键词"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_card",
+      "description": "把对方在私聊里告诉你的事记进 TA 的熟人卡：希望你怎么称呼 TA（nickname）、生日（birthday，MM-DD）、喜欢的相处方式（style）、或者一条稳定的印象（impression，如\"不吃香菜\"）。只在对方明确说了时才记，不要猜。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "nickname": {
+            "type": "string",
+            "description": "TA 希望被怎么称呼"
+          },
+          "birthday": {
+            "type": "string",
+            "description": "生日 MM-DD"
+          },
+          "style": {
+            "type": "string",
+            "description": "TA 喜欢的相处方式"
+          },
+          "impression": {
+            "type": "string",
+            "description": "一条关于 TA 的稳定印象（≤20 字）"
           }
         }
       }
@@ -253,5 +279,9 @@
         ]
       }
     ]
+  },
+  "page": {
+    "entry": "page.html",
+    "title": "陪伴小屋"
   }
 }

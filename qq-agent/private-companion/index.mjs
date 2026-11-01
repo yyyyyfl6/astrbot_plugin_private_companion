@@ -1,6 +1,7 @@
 // 「我会永远陪着你」QQ Agent 移植版 —— 协议入口（NDJSON over stdio，见 QQ Agent docs/PLUGINS.md）。
 // 原作：menglimi / astrbot_plugin_private_companion。核心逻辑在 companion.mjs。
 import { Companion } from './companion.mjs';
+import { pageCall } from './page.mjs';
 
 const send = (m) => process.stdout.write(`${JSON.stringify(m)}\n`);
 let seq = 0;
@@ -71,8 +72,23 @@ async function handle(m) {
         const found = companion.searchDiary(await companion.diary(mm[1]), args);
         return found.length ? { entries: found } : { note: '没有找到对应的日记（可能那天聊得少没记，或者是开始记日记之前的事）' };
       }
+      if (name === 'update_card') {
+        // 模型在聊天里记下对方的称呼 / 生日 / 相处方式 / 印象：只能改**当前私聊这个人**的卡
+        const mm = /^private:(\d+)$/.exec(String(context.chatKey || ''));
+        if (!mm) return { error: '只能在私聊里记熟人卡' };
+        const patch = { uin: mm[1] };
+        for (const k of ['nickname', 'birthday', 'style']) if (typeof args[k] === 'string' && args[k].trim()) patch[k] = args[k];
+        const card = await companion.rel.saveCard(patch);
+        if (typeof args.impression === 'string' && args.impression.trim()) await companion.rel.addImpressions(mm[1], [args.impression]);
+        await companion.refreshContext(mm[1]).catch(() => {});
+        return { saved: true, card: await companion.rel.card(card.uin) };
+      }
       return { error: `未知工具 ${name}` };
     }
+    case 'page':
+      // 控制台「陪伴小屋」页面（沙箱 iframe）里的操作
+      await refreshSettings();
+      return pageCall(companion, String(m.params?.method || ''), m.params?.params || {});
     case 'inbound':
       // 手机陪伴终端的请求（宿主 /plugin-hooks/private-companion/… 或独立端口转来）
       await refreshSettings();

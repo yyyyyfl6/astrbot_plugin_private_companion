@@ -25,7 +25,7 @@ const smartLlm = (messages) => {
   const sys = messages[0].content;
   if (sys.includes('节目单')) return PLAN;
   if (sys.includes('推进')) return STEP;
-  if (sys.includes('备忘')) return '{"summary":"阿明说周五要面试，有点紧张。","followups":["周五面试 → 问结果"]}';
+  if (sys.includes('每日反思')) return '{"summary":"阿明说周五要面试，有点紧张。","followups":["周五面试 → 问结果"]}';
   return '{}';
 };
 

@@ -1,0 +1,197 @@
+<!-- 「陪伴小屋」：我会永远陪着你（原作 menglimi）的 QQ Agent 移植版自带页面。
+     运行在控制台的沙箱 iframe 里（断网、拿不到控制台令牌），只能经 qqa.call 调本插件（见 page.mjs）。 -->
+<style>
+  :root { --bg:#f6f7fb; --bg-2:#fff; --bg-3:#eef1f6; --text:#1c2333; --muted:#5d6678; --faint:#8a93a5; --border:#e3e7ef; --accent:#4c8dff; --accent-fg:#fff; --red:#e5484d; --green:#2f9e6b; --amber:#c27c0e; --hover:rgba(0,0,0,.04);
+    --r-sm:6px; --r-md:10px; --r-lg:14px; --r-card:16px; --r-pill:999px; --fs-2xs:11px; --fs-xs:12px; --fs-sm:13px; --fs-md:14px; --fs-lg:16px; --fs-xl:19px; --fs-2xl:23px; --mono:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: transparent; color: var(--text); font: var(--fs-md)/1.6 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  body { padding: 4px 2px 12px; }
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; padding: 4px; border-radius: var(--r-pill); background: var(--bg-3); margin-bottom: 14px; width: max-content; max-width: 100%; }
+  .tabs button { border: 0; background: transparent; color: var(--muted); padding: 6px 14px; border-radius: var(--r-pill); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+  .tabs button.on { background: var(--bg-2); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .card { background: var(--bg-2); border-radius: var(--r-card); padding: 14px 16px; border: 1px solid var(--border); min-width: 0; }
+  .card h3 { margin: 0 0 8px; font-size: var(--fs-md); display: flex; align-items: center; gap: 8px; }
+  .card h3 .sp { flex: 1; }
+  .muted { color: var(--muted); font-size: var(--fs-sm); }
+  .faint { color: var(--faint); font-size: var(--fs-xs); }
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .stat { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-card); padding: 10px 14px; }
+  .stat b { display: block; font-size: var(--fs-lg); }
+  .tl { list-style: none; margin: 0; padding: 0; }
+  .tl li { display: flex; gap: 12px; padding: 4px 0; color: var(--muted); }
+  .tl li time { font-family: var(--mono); font-size: var(--fs-xs); color: var(--faint); flex: 0 0 40px; padding-top: 2px; }
+  .tl li.now { color: var(--text); font-weight: 600; }
+  .tl li.now time { color: var(--accent); }
+  .chip { display: inline-block; padding: 1px 9px; border-radius: var(--r-pill); font-size: var(--fs-xs); background: var(--bg-3); color: var(--muted); margin: 0 4px 4px 0; }
+  .chip.ac { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+  .chip.auto { background: color-mix(in srgb, var(--green) 14%, transparent); color: var(--green); }
+  button.btn { border: 1px solid var(--border); background: var(--bg-2); color: var(--text); padding: 5px 12px; border-radius: var(--r-pill); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+  button.btn:hover { border-color: var(--accent); }
+  button.btn.pri { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  button.btn.danger:hover { color: var(--red); border-color: var(--red); }
+  button.btn:disabled { opacity: .5; cursor: default; }
+  input, select, textarea { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg); color: var(--text); font: inherit; font-size: var(--fs-sm); }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  label.f { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-xs); color: var(--muted); }
+  .form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .form .wide { grid-column: 1 / -1; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .list > * + * { border-top: 1px solid var(--border); }
+  .item { padding: 10px 2px; display: flex; gap: 12px; align-items: flex-start; }
+  .item .main { flex: 1; min-width: 0; }
+  .avatar { flex: 0 0 auto; width: 36px; height: 36px; border-radius: var(--r-md); display: grid; place-items: center; color: #fff; font-weight: 700; }
+  .split { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 14px; }
+  .days button { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: var(--text); padding: 7px 10px; border-radius: var(--r-md); font: inherit; cursor: pointer; }
+  .days button.on { background: color-mix(in srgb, var(--accent) 13%, transparent); color: var(--accent); font-weight: 600; }
+  .days button span { display: block; font-size: var(--fs-2xs); color: var(--faint); font-weight: 400; }
+  .msg { font-size: var(--fs-sm); min-height: 1.2em; }
+  .msg.ok { color: var(--green); } .msg.bad { color: var(--red); }
+  .empty { padding: 16px 4px; color: var(--muted); font-size: var(--fs-sm); }
+  pre { white-space: pre-wrap; font-family: var(--mono); font-size: var(--fs-xs); color: var(--muted); margin: 0; }
+  @media (max-width: 720px) { .grid, .stats, .form, .split { grid-template-columns: minmax(0, 1fr); } }
+</style>
+<div class="tabs" id="tabs"></div>
+<div id="view"></div>
+<script>
+(function () {
+  var TABS = [['home', '总览'], ['cards', '关系网'], ['life', '日记与生活'], ['anniv', '纪念日'], ['log', '主动记录'], ['phone', '手机']];
+  var KIND = { morning: '早安', thought: '生活里的念头', followup: '跟进', miss: '想你了', date: '特别的日子', place: '到了新地方', battery: '电量低', manual: '手动' };
+  var tab = 'home', diaryUin = '', diaryDate = '';
+  var $ = function (s) { return document.querySelector(s); };
+  var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var hue = function (t) { var h = 7; String(t).split('').forEach(function (ch) { h = (h * 31 + ch.charCodeAt(0)) % 360; }); return h; };
+  var avatar = function (t) { return '<span class="avatar" style="background:linear-gradient(135deg,hsl(' + hue(t) + ' 62% 56%),hsl(' + (hue(t) + 35) + ' 62% 46%))">' + esc(String(t || '?').slice(0, 1)) + '</span>'; };
+  var call = function (m, p) { return window.qqa.call(m, p); };
+  var fmt = function (ms) { var d = new Date(Number(ms) + 8 * 3600000).toISOString(); return d.slice(5, 10) + ' ' + d.slice(11, 16); };
+  function flash(el, text, ok) { if (!el) return; el.textContent = text; el.className = 'msg ' + (ok ? 'ok' : 'bad'); }
+
+  function renderTabs() {
+    $('#tabs').innerHTML = TABS.map(function (t) { return '<button data-tab="' + t[0] + '" class="' + (t[0] === tab ? 'on' : '') + '">' + t[1] + '</button>'; }).join('');
+    document.querySelectorAll('[data-tab]').forEach(function (b) { b.onclick = function () { tab = b.dataset.tab; renderTabs(); load(); }; });
+  }
+
+  function load() {
+    $('#view').innerHTML = '<div class="empty">读取中…</div>';
+    ({ home: home, cards: cards, life: life, anniv: anniv, log: logs, phone: phone })[tab]().catch(function (e) { $('#view').innerHTML = '<div class="empty">读取失败：' + esc(e.message) + '</div>'; });
+  }
+
+  // ── 总览 ──
+  function home() {
+    return call('overview').then(function (d) {
+      var t = d.today, s = d.settings;
+      var plan = t ? '<ul class="tl">' + t.plan.map(function (p) { var on = t.now && t.now.time === p.time; return '<li class="' + (on ? 'now' : '') + '"><time>' + esc(p.time) + '</time><span>' + esc(p.text) + (on ? '  · 此刻' : '') + '</span></li>'; }).join('') + '</ul>' : '<div class="empty">今天的日程还没排（填好副 API 后，下一次巡检会按角色设定自动排）。</div>';
+      var happened = t && t.log.length ? t.log.slice().reverse().map(function (e) { return '<div class="item"><time class="faint" style="flex:0 0 40px">' + esc(e.time) + '</time><div class="main">' + esc(e.text) + '</div></div>'; }).join('') : '<div class="empty">今天还没有推进过。</div>';
+      var thoughts = t && t.thoughts.length ? t.thoughts.map(function (x) { return '<span class="chip ' + (x.used ? '' : 'ac') + '">' + esc(x.text) + (x.used ? '（已说）' : '') + '</span>'; }).join('') : '<span class="faint">没有攒着的念头</span>';
+      var up = d.upcoming.length ? d.upcoming.map(function (u) { return '<div class="item"><div class="main">' + esc(u.label) + '<div class="faint">' + esc(u.date) + (u.inDays === 0 ? ' · 今天' : ' · ' + u.inDays + ' 天后') + '</div></div><span class="chip ' + (u.kind === 'birthday' ? 'ac' : '') + '">' + (u.kind === 'birthday' ? '生日' : '纪念日') + '</span></div>'; }).join('') : '<div class="empty">30 天内没有记着的日子。</div>';
+      var chats = d.chats.length ? d.chats.map(function (c) { return '<div class="item">' + avatar(c.uin) + '<div class="main"><b>' + esc(c.uin) + '</b><div class="faint">对方上次说话 ' + esc(c.lastUser) + ' · 今天主动 ' + c.wakesToday + ' 次 · 下一次约 ' + esc(c.next) + ' · 日记 ' + c.diaryDays + ' 天</div></div><button class="btn" data-poke="' + esc(c.uin) + '">现在找 TA</button></div>'; }).join('') : '<div class="empty">还没填陪伴对象（插件设置 → 陪伴对象）。</div>';
+      $('#view').innerHTML =
+        '<div class="stats"><div class="stat"><span class="faint">现在</span><b>' + esc(d.now.slice(11)) + '</b><span class="muted">' + esc(t && t.now ? t.now.text : '—') + '</span></div>' +
+        '<div class="stat"><span class="faint">心情</span><b>' + esc(t ? t.mood : '—') + '</b><span class="muted">' + esc(s.roleName || '未命名角色') + '</span></div>' +
+        '<div class="stat"><span class="faint">主动联系</span><b>' + (s.proactive ? '开' : '关') + '</b><span class="muted">每人每天 ≤' + s.dailyMax + ' · 间隔 ' + esc(s.gap) + ' 分钟</span></div>' +
+        '<div class="stat"><span class="faint">免打扰</span><b>' + esc(s.quiet) + '</b><span class="muted">手机 ' + (s.phone ? '已启用' : '未启用') + '</span></div></div>' +
+        '<div class="grid"><div class="card"><h3>今天的节目单<span class="sp"></span><button class="btn" id="replan">重新排</button></h3>' + plan + '</div>' +
+        '<div class="card"><h3>今天发生的<span class="sp"></span><button class="btn" id="step">推进一下</button></h3><div class="list">' + happened + '</div><div style="margin-top:8px">' + thoughts + '</div>' +
+        (d.dream ? '<div class="faint" style="margin-top:10px">昨晚的梦：' + esc(d.dream.text) + '（' + esc(d.dream.mood) + '）</div>' : '') + '<div class="msg" id="life-msg"></div></div>' +
+        '<div class="card"><h3>陪伴对象</h3><div class="list">' + chats + '</div><div class="msg" id="poke-msg"></div></div>' +
+        '<div class="card"><h3>接下来的日子</h3><div class="list">' + up + '</div></div></div>';
+      $('#replan').onclick = function (e) { e.target.disabled = true; call('life.replan').then(load, function (er) { flash($('#life-msg'), er.message); e.target.disabled = false; }); };
+      $('#step').onclick = function (e) { e.target.disabled = true; call('life.step').then(load, function (er) { flash($('#life-msg'), er.message); e.target.disabled = false; }); };
+      document.querySelectorAll('[data-poke]').forEach(function (b) { b.onclick = function () { b.disabled = true; call('proactive.test', { uin: b.dataset.poke }).then(function () { flash($('#poke-msg'), '已请主模型主动找 TA（发不发由它决定）', true); }, function (er) { flash($('#poke-msg'), er.message); b.disabled = false; }); }; });
+    });
+  }
+
+  // ── 关系网 ──
+  function cards() {
+    return call('cards.list').then(function (d) {
+      var form = function (c) { c = c || {}; return '<div class="form">' +
+        '<label class="f">QQ<input data-k="uin" value="' + esc(c.uin) + '" ' + (c.uin ? 'readonly' : '') + ' placeholder="10001"></label>' +
+        '<label class="f">称呼（你叫 TA 什么）<input data-k="nickname" value="' + esc(c.nickname) + '" maxlength="20"></label>' +
+        '<label class="f">关系<input data-k="relation" value="' + esc(c.relation) + '" maxlength="30" placeholder="如 恋人 / 好朋友 / 同学"></label>' +
+        '<label class="f">生日（MM-DD）<input data-k="birthday" value="' + esc(c.birthday) + '" maxlength="5" placeholder="05-20"></label>' +
+        '<label class="f wide">相处方式<input data-k="style" value="' + esc(c.style) + '" maxlength="120" placeholder="如 喜欢被逗、不爱被说教、晚上话多"></label>' +
+        '<label class="f wide">备注<input data-k="notes" value="' + esc(c.notes) + '" maxlength="200"></label>' +
+        '<label class="f">主动联系 TA<select data-k="proactiveMode">' + [['', '跟随全局'], ['less', '少一点'], ['more', '多一点'], ['off', '不主动找']].map(function (o) { return '<option value="' + o[0] + '"' + ((c.proactiveMode || '') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label></div>'; };
+      var list = d.cards.length ? d.cards.map(function (c) {
+        return '<div class="item" data-uin="' + esc(c.uin) + '">' + avatar(c.nickname || c.uin) + '<div class="main"><b>' + esc(c.nickname || c.uin) + '</b> <span class="faint">' + esc(c.uin) + '</span> ' + (d.targets.indexOf(c.uin) >= 0 ? '<span class="chip ac">陪伴对象</span>' : '') +
+          '<div class="muted">' + [c.relation, c.birthday ? '生日 ' + c.birthday : '', c.style, ({ off: '不主动找', less: '主动少一点', more: '主动多一点' })[c.proactiveMode] || ''].filter(Boolean).map(esc).join(' · ') + '</div>' +
+          (c.impressions && c.impressions.length ? '<div style="margin-top:4px">' + c.impressions.map(function (x) { return '<span class="chip auto">' + esc(x.text) + '</span>'; }).join('') + '</div>' : '') +
+          '<div class="edit" hidden style="margin-top:10px">' + form(c) + '<div class="row" style="margin-top:8px"><button class="btn pri" data-save>保存</button><button class="btn" data-cancel>取消</button></div></div></div>' +
+          '<div class="row"><button class="btn" data-edit>编辑</button><button class="btn danger" data-del>删除</button></div></div>';
+      }).join('') : '<div class="empty">还没有熟人卡。每日反思会自动给陪伴对象记印象；你也可以在下面手动建。</div>';
+      $('#view').innerHTML = '<div class="card"><h3>熟人卡</h3><div class="muted" style="margin-bottom:6px">称呼、关系、生日、相处方式会挂进和 TA 私聊的背景；绿色的是每日反思从 TA 的话里自动记下的印象。生日当天会进「特别的日子」。</div><div class="list" id="card-list">' + list + '</div></div>' +
+        '<div class="card" style="margin-top:12px"><h3>新建熟人卡</h3><div id="new-card">' + form({}) + '</div><div class="row" style="margin-top:8px"><button class="btn pri" id="add-card">添加</button><span class="msg" id="card-msg"></span></div></div>';
+      var collect = function (root) { var o = {}; root.querySelectorAll('[data-k]').forEach(function (i) { o[i.dataset.k] = i.value; }); return o; };
+      document.querySelectorAll('#card-list [data-uin]').forEach(function (row) {
+        row.querySelector('[data-edit]').onclick = function () { row.querySelector('.edit').hidden = false; };
+        row.querySelector('[data-cancel]').onclick = function () { row.querySelector('.edit').hidden = true; };
+        row.querySelector('[data-save]').onclick = function () { call('cards.save', { card: collect(row.querySelector('.edit')) }).then(load, function (e) { flash($('#card-msg'), e.message); }); };
+        row.querySelector('[data-del]').onclick = function () { if (confirm('删除这张熟人卡？')) call('cards.delete', { uin: row.dataset.uin }).then(load); };
+      });
+      $('#add-card').onclick = function () { call('cards.save', { card: collect($('#new-card')) }).then(load, function (e) { flash($('#card-msg'), e.message); }); };
+    });
+  }
+
+  // ── 日记与生活 ──
+  function life() {
+    return Promise.all([call('diary.list', { uin: diaryUin }), call('life.get')]).then(function (r) {
+      var d = r[0], l = r[1];
+      diaryUin = d.uin;
+      if (!d.entries.some(function (e) { return e.date === diaryDate; })) diaryDate = d.entries[0] ? d.entries[0].date : '';
+      var open = d.entries.filter(function (e) { return e.date === diaryDate; })[0];
+      var dreams = Object.keys(l.dreams || {}).sort().reverse().map(function (k) { return '<div class="item"><time class="faint" style="flex:0 0 46px">' + esc(k.slice(5)) + '</time><div class="main">' + esc(l.dreams[k].text) + ' <span class="faint">（' + esc(l.dreams[k].mood) + '）</span></div></div>'; }).join('') || '<div class="empty">还没有梦（起床后的巡检会做一个）。</div>';
+      var y = l.yesterday;
+      $('#view').innerHTML = '<div class="card"><h3>私聊日记<span class="sp"></span><select id="d-uin" style="width:auto">' + d.targets.map(function (u) { return '<option ' + (u === d.uin ? 'selected' : '') + '>' + esc(u) + '</option>'; }).join('') + '</select><button class="btn" id="d-write">写今天的</button></h3>' +
+        (d.entries.length ? '<div class="split"><div class="days">' + d.entries.map(function (e) { return '<button data-day="' + esc(e.date) + '" class="' + (e.date === diaryDate ? 'on' : '') + '">' + esc(e.date.slice(5)) + '<span>' + (e.n || 0) + ' 句</span></button>'; }).join('') + '</div><div>' +
+          (open ? '<b>' + esc(open.date) + '</b><p>' + esc(open.summary) + '</p>' + (open.followups && open.followups.length ? '<div class="faint">待跟进：' + open.followups.map(esc).join('；') + '</div>' : '') + '<div class="row" style="margin-top:10px"><button class="btn danger" id="d-del">删除这天</button></div>' : '') + '</div></div>'
+          : '<div class="empty">还没有日记。对方当天说够几句话后，第二天凌晨会自动写；也可以点「写今天的」。</div>') + '<div class="msg" id="d-msg"></div></div>' +
+        '<div class="grid" style="margin-top:12px"><div class="card"><h3>梦境</h3><div class="list">' + dreams + '</div></div>' +
+        '<div class="card"><h3>昨天的生活</h3>' + (y ? '<div class="muted">心情：' + esc(y.mood) + '</div><div class="list">' + y.log.map(function (e) { return '<div class="item"><time class="faint" style="flex:0 0 40px">' + esc(e.time) + '</time><div class="main">' + esc(e.text) + '</div></div>'; }).join('') + '</div>' : '<div class="empty">没有昨天的记录。</div>') + '</div></div>';
+      $('#d-uin') && ($('#d-uin').onchange = function (e) { diaryUin = e.target.value; diaryDate = ''; load(); });
+      document.querySelectorAll('[data-day]').forEach(function (b) { b.onclick = function () { diaryDate = b.dataset.day; load(); }; });
+      $('#d-write') && ($('#d-write').onclick = function (e) { e.target.disabled = true; call('diary.write', { uin: diaryUin }).then(function (r) { diaryDate = r.date; load(); }, function (er) { flash($('#d-msg'), er.message); e.target.disabled = false; }); });
+      $('#d-del') && ($('#d-del').onclick = function () { if (confirm('删除这天的日记？')) call('diary.delete', { uin: diaryUin, date: diaryDate }).then(function () { diaryDate = ''; load(); }); });
+    });
+  }
+
+  // ── 纪念日 ──
+  function anniv() {
+    return Promise.all([call('anniv.list'), call('cards.list')]).then(function (r) {
+      var d = r[0], targets = r[1].targets;
+      var list = d.items.length ? d.items.map(function (a) { return '<div class="item"><div class="main"><b>' + esc(a.md) + '</b>  ' + esc(a.label) + ' ' + (a.source === 'auto' ? '<span class="chip auto">每日反思记下</span>' : '<span class="chip">手动</span>') + (a.uin ? ' <span class="faint">QQ ' + esc(a.uin) + '</span>' : '') +
+        (a.year ? ' <span class="faint">' + a.year + ' 年起</span>' : '') + (a.quote ? '<div class="faint">原话：' + esc(a.quote) + '</div>' : '') + '</div><button class="btn danger" data-del="' + esc(a.id) + '">删除</button></div>'; }).join('') : '<div class="empty">还没有纪念日。每日反思会从对方的原话里自动记下"第一次…"这类日子；也可以手动加。</div>';
+      $('#view').innerHTML = '<div class="card"><h3>纪念日</h3><div class="list">' + list + '</div></div>' +
+        '<div class="card" style="margin-top:12px"><h3>添加</h3><div class="form"><label class="f">日期（MM-DD 或 YYYY-MM-DD）<input id="a-date" placeholder="2025-05-20"></label><label class="f">名称<input id="a-label" maxlength="40" placeholder="第一次一起看海"></label><label class="f">对谁（留空 = 所有陪伴对象）<select id="a-uin"><option value="">所有人</option>' + targets.map(function (u) { return '<option>' + esc(u) + '</option>'; }).join('') + '</select></label></div><div class="row" style="margin-top:8px"><button class="btn pri" id="a-add">添加</button><span class="msg" id="a-msg"></span></div><div class="faint" style="margin-top:8px">生日在「关系网」的熟人卡里填。当天会挂进背景，并在起床一小时后作为一次主动联系的由头。</div></div>';
+      document.querySelectorAll('[data-del]').forEach(function (b) { b.onclick = function () { call('anniv.delete', { id: b.dataset.del }).then(load); }; });
+      $('#a-add').onclick = function () { var v = $('#a-date').value.trim(); call('anniv.save', { item: { date: v, md: v, label: $('#a-label').value, uin: $('#a-uin').value } }).then(load, function (e) { flash($('#a-msg'), e.message); }); };
+    });
+  }
+
+  // ── 主动记录 ──
+  function logs() {
+    return call('log.list').then(function (d) {
+      var t = d.lastTick;
+      $('#view').innerHTML = '<div class="card"><h3>最近一次巡检</h3>' + (t ? '<div class="muted">' + esc(t.at) + ' · ' + esc(t.life || '') + (t.dream ? ' · 做了个梦' : '') + '</div><div style="margin-top:6px">' + (t.chats || []).map(function (c) { return '<span class="chip ' + (c.woke ? 'ac' : '') + '">' + esc(c.uin) + '：' + esc(c.woke ? '主动（' + (KIND[c.woke] || c.woke) + '）' : (c.blocked || (c.next ? '下一次 ' + c.next : c.wakeError || ''))) + '</span>'; }).join('') + '</div>' : '<div class="empty">还没有巡检过（插件启用后每 5 分钟一次）。</div>') + '</div>' +
+        '<div class="card" style="margin-top:12px"><h3>主动联系记录</h3><div class="list">' + (d.log.length ? d.log.map(function (l) { return '<div class="item"><time class="faint" style="flex:0 0 84px">' + esc(fmt(l.at)) + '</time><div class="main"><span class="chip ac">' + esc(KIND[l.kind] || l.kind) + '</span> <span class="faint">→ ' + esc(l.uin) + '</span><div class="muted">' + esc(l.note) + '</div></div></div>'; }).join('') : '<div class="empty">还没有主动联系过。</div>') + '</div></div>';
+    });
+  }
+
+  // ── 手机 ──
+  function phone() {
+    return call('phone.status').then(function (d) {
+      var p = d.phone;
+      $('#view').innerHTML = '<div class="card"><h3>手机连接</h3>' + (p.enabled ? '<div class="list">' +
+        '<div class="item"><div class="main">绑定的 QQ</div><b>' + esc(p.uin || '—') + '</b></div>' +
+        '<div class="item"><div class="main">配对令牌</div><b>' + (p.pairingTokenSet ? '已设置' : '还没填') + '</b></div>' +
+        '<div class="item"><div class="main">已配对设备</div><b>' + (p.devices.length ? p.devices.map(esc).join('、') : '没有') + '</b></div>' +
+        '<div class="item"><div class="main">最近位置</div><b>' + esc(p.location) + '</b></div>' +
+        '<div class="item"><div class="main">电量</div><b>' + esc(p.device) + '</b></div></div>' +
+        '<div class="muted" style="margin-top:10px">App 里填网关地址：开了「设备入站端口」并把根路径交给本插件时填 <code>http://服务器:6322</code>；否则填 <code>http://服务器:3210' + esc(p.path) + '</code>。令牌与共享项在插件设置的「手机连接」里改。</div>'
+        : '<div class="empty">手机连接没开：在插件设置 → 手机连接 里勾「启用手机连接」并填配对令牌。</div>') + '</div>';
+    });
+  }
+
+  renderTabs();
+  load();
+})();
+</script>
