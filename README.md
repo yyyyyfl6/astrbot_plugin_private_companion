@@ -1,5 +1,7 @@
 # 我会永远陪着你
 
+> **QQ Agent 移植版**：本 fork 在 [`qq-agent/`](qq-agent/) 目录下提供该插件面向 [QQ Agent](https://github.com/yyyyyfl6/qq-agent-plus) 的移植插件（已获原作者授权，见 [qq-agent/PORTING.md](qq-agent/PORTING.md)）。以下为原作者 menglimi 的原版说明，未作改动。
+
 <div align="center">
   <img src="./logo.png" alt="我会永远陪着你" width="180">
 </div>

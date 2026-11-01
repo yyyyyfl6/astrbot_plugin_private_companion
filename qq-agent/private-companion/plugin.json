@@ -1,0 +1,83 @@
+{
+  "id": "private-companion",
+  "apiVersion": 3,
+  "name": "我会永远陪着你（QQ Agent 移植版）",
+  "version": "0.1.0",
+  "description": "原作 menglimi 的 AstrBot 插件「我会永远陪着你」的 QQ Agent 移植版：副 API 维护角色持续进行的生活长任务（日程、心情、经历、想说的话）并挂进对话背景，按不规则间隔提示主模型主动联系；私聊按日期记日记。",
+  "author": "menglimi（原作） · yyyyyfl6（QQ Agent 移植）",
+  "homepage": "https://github.com/yyyyyfl6/astrbot_plugin_private_companion",
+  "entry": "index.mjs",
+  "engines": { "minVersion": "0.9.12" },
+  "capabilities": ["tools", "observe", "schedule", "storage", "config", "log", "llm", "context", "wake"],
+  "tools": [
+    {
+      "name": "life_status",
+      "description": "查看你自己今天的生活：今日安排、此刻在做什么、心情、今天发生过的事。对方问\"你在干嘛\"\"今天过得怎么样\"\"今天干了啥\"时用，回答要以这里为准，不要临时编。",
+      "parameters": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "recall_diary",
+      "description": "翻你和对方的私聊日记（按日期记的\"那天发生了什么\"）。对方问\"我们上周聊了啥\"\"我之前说过要干嘛\"时用：给 date（YYYY-MM-DD 或 MM-DD）查某一天，给 keyword 按关键词找，都不给就返回最近几天。只在私聊里有效。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "date": { "type": "string", "description": "某一天，如 2026-10-20 或 10-20" },
+          "keyword": { "type": "string", "description": "关键词" }
+        }
+      }
+    }
+  ],
+  "schedule": [{ "name": "tick", "everyMs": 300000 }],
+  "settings": {
+    "groups": [
+      {
+        "key": "basic",
+        "title": "陪伴对象",
+        "description": "只陪这几个人（私聊）。最多 4 个。",
+        "fields": [
+          { "key": "targets", "label": "陪伴对象 QQ（逗号分隔）", "type": "text", "required": true, "placeholder": "如 10001, 20002" },
+          { "key": "quietStart", "label": "免打扰 / 睡觉开始", "type": "text", "default": "23:30", "placeholder": "HH:MM" },
+          { "key": "quietEnd", "label": "免打扰结束（起床）", "type": "text", "default": "08:00", "placeholder": "HH:MM" }
+        ]
+      },
+      {
+        "key": "llm",
+        "title": "副 API（后台长任务用）",
+        "description": "排日程、推进生活、写日记都用它，建议选便宜的模型。供应商 id 在 设置 → 模型 API 的供应商卡片上（custom_ 开头）。",
+        "fields": [
+          { "key": "llmProvider", "label": "供应商 id", "type": "text", "help": "留空 = 自动：先找提供该模型的供应商，没有就用主模型那一家", "placeholder": "custom_xxxx" },
+          { "key": "llmModel", "label": "模型", "type": "text", "help": "留空 = 跟主模型相同（不推荐：后台任务会花主模型的钱）", "placeholder": "如 deepseek-chat" }
+        ]
+      },
+      {
+        "key": "role",
+        "title": "角色与生活",
+        "fields": [
+          { "key": "roleName", "label": "角色名", "type": "text", "placeholder": "如 小鲸鱼" },
+          { "key": "roleNote", "label": "角色设定（简要，给副 API 排生活用）", "type": "text", "help": "身份、作息、爱好、所处世界。主对话的人设不受影响。", "placeholder": "如：大二学生，学美术，喜欢猫和夜跑，住学校宿舍" },
+          { "key": "lifeStepMinutes", "label": "生活推进间隔（分钟，实际会上下浮动）", "type": "number", "default": 90, "min": 30, "max": 360 }
+        ]
+      },
+      {
+        "key": "proactive",
+        "title": "主动联系",
+        "fields": [
+          { "key": "proactive", "label": "允许主动找对方", "type": "boolean", "default": true },
+          { "key": "minGapMinutes", "label": "两次主动之间最少隔（分钟）", "type": "number", "default": 120, "min": 30, "max": 1440 },
+          { "key": "maxGapMinutes", "label": "最多隔（分钟）", "type": "number", "default": 360, "min": 60, "max": 2880, "help": "每次在最少与最多之间随机取，间隔不规则" },
+          { "key": "dailyMax", "label": "每人每天最多主动几次", "type": "number", "default": 3, "min": 1, "max": 10 },
+          { "key": "waitReply", "label": "上一条没回就不再追（24 小时内）", "type": "boolean", "default": true },
+          { "key": "morning", "label": "起床后道早安", "type": "boolean", "default": true }
+        ]
+      },
+      {
+        "key": "diary",
+        "title": "私聊日记",
+        "fields": [
+          { "key": "diaryEnabled", "label": "按日期记私聊日记", "type": "boolean", "default": true },
+          { "key": "diaryDays", "label": "最近几天的日记进背景", "type": "number", "default": 3, "min": 0, "max": 7 }
+        ]
+      }
+    ]
+  }
+}
