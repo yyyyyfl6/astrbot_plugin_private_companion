@@ -55,7 +55,7 @@
 <div id="view"></div>
 <script>
 (function () {
-  var TABS = [['home', '总览'], ['cards', '关系网'], ['life', '日记与生活'], ['anniv', '纪念日'], ['log', '主动记录'], ['phone', '手机']];
+  var TABS = [['home', '总览'], ['cards', '关系网'], ['life', '日记与生活'], ['anniv', '纪念日'], ['expr', '表达学习'], ['growth', '成长'], ['log', '主动记录'], ['phone', '手机']];
   var KIND = { morning: '早安', thought: '生活里的念头', followup: '跟进', miss: '想你了', date: '特别的日子', place: '到了新地方', battery: '电量低', manual: '手动' };
   var tab = 'home', diaryUin = '', diaryDate = '';
   var $ = function (s) { return document.querySelector(s); };
@@ -73,7 +73,7 @@
 
   function load() {
     $('#view').innerHTML = '<div class="empty">读取中…</div>';
-    ({ home: home, cards: cards, life: life, anniv: anniv, log: logs, phone: phone })[tab]().catch(function (e) { $('#view').innerHTML = '<div class="empty">读取失败：' + esc(e.message) + '</div>'; });
+    ({ home: home, cards: cards, life: life, anniv: anniv, expr: expr, growth: growth, log: logs, phone: phone })[tab]().catch(function (e) { $('#view').innerHTML = '<div class="empty">读取失败：' + esc(e.message) + '</div>'; });
   }
 
   // ── 总览 ──
@@ -84,10 +84,10 @@
       var happened = t && t.log.length ? t.log.slice().reverse().map(function (e) { return '<div class="item"><time class="faint" style="flex:0 0 40px">' + esc(e.time) + '</time><div class="main">' + esc(e.text) + '</div></div>'; }).join('') : '<div class="empty">今天还没有推进过。</div>';
       var thoughts = t && t.thoughts.length ? t.thoughts.map(function (x) { return '<span class="chip ' + (x.used ? '' : 'ac') + '">' + esc(x.text) + (x.used ? '（已说）' : '') + '</span>'; }).join('') : '<span class="faint">没有攒着的念头</span>';
       var up = d.upcoming.length ? d.upcoming.map(function (u) { return '<div class="item"><div class="main">' + esc(u.label) + '<div class="faint">' + esc(u.date) + (u.inDays === 0 ? ' · 今天' : ' · ' + u.inDays + ' 天后') + '</div></div><span class="chip ' + (u.kind === 'birthday' ? 'ac' : '') + '">' + (u.kind === 'birthday' ? '生日' : '纪念日') + '</span></div>'; }).join('') : '<div class="empty">30 天内没有记着的日子。</div>';
-      var chats = d.chats.length ? d.chats.map(function (c) { return '<div class="item">' + avatar(c.uin) + '<div class="main"><b>' + esc(c.uin) + '</b><div class="faint">对方上次说话 ' + esc(c.lastUser) + ' · 今天主动 ' + c.wakesToday + ' 次 · 下一次约 ' + esc(c.next) + ' · 日记 ' + c.diaryDays + ' 天</div></div><button class="btn" data-poke="' + esc(c.uin) + '">现在找 TA</button></div>'; }).join('') : '<div class="empty">还没填陪伴对象（插件设置 → 陪伴对象）。</div>';
+      var chats = d.chats.length ? d.chats.map(function (c) { return '<div class="item">' + avatar(c.uin) + '<div class="main"><b>' + esc(c.uin) + '</b>' + (c.persona ? ' <span class="chip">' + esc(c.persona) + '</span>' : '') + '<div class="faint">对方上次说话 ' + esc(c.lastUser) + ' · 今天主动 ' + c.wakesToday + ' 次 · 下一次约 ' + esc(c.next) + ' · 日记 ' + c.diaryDays + ' 天</div></div><button class="btn" data-poke="' + esc(c.uin) + '">现在找 TA</button></div>'; }).join('') : '<div class="empty">还没填陪伴对象（插件设置 → 陪伴对象）。</div>';
       $('#view').innerHTML =
         '<div class="stats"><div class="stat"><span class="faint">现在</span><b>' + esc(d.now.slice(11)) + '</b><span class="muted">' + esc(t && t.now ? t.now.text : '—') + '</span></div>' +
-        '<div class="stat"><span class="faint">心情</span><b>' + esc(t ? t.mood : '—') + '</b><span class="muted">' + esc(s.roleName || '未命名角色') + '</span></div>' +
+        '<div class="stat"><span class="faint">心情</span><b>' + esc(t ? t.mood : '—') + '</b><span class="muted">' + esc((d.persona && d.persona.name) || s.roleName || '未命名角色') + (d.persona && d.persona.fromHost ? ' · 当前人格' : ' · 插件设置') + '</span></div>' +
         '<div class="stat"><span class="faint">主动联系</span><b>' + (s.proactive ? '开' : '关') + '</b><span class="muted">每人每天 ≤' + s.dailyMax + ' · 间隔 ' + esc(s.gap) + ' 分钟</span></div>' +
         '<div class="stat"><span class="faint">免打扰</span><b>' + esc(s.quiet) + '</b><span class="muted">手机 ' + (s.phone ? '已启用' : '未启用') + '</span></div></div>' +
         '<div class="grid"><div class="card"><h3>今天的节目单<span class="sp"></span><button class="btn" id="replan">重新排</button></h3>' + plan + '</div>' +
@@ -164,6 +164,51 @@
         '<div class="card" style="margin-top:12px"><h3>添加</h3><div class="form"><label class="f">日期（MM-DD 或 YYYY-MM-DD）<input id="a-date" placeholder="2025-05-20"></label><label class="f">名称<input id="a-label" maxlength="40" placeholder="第一次一起看海"></label><label class="f">对谁（留空 = 所有陪伴对象）<select id="a-uin"><option value="">所有人</option>' + targets.map(function (u) { return '<option>' + esc(u) + '</option>'; }).join('') + '</select></label></div><div class="row" style="margin-top:8px"><button class="btn pri" id="a-add">添加</button><span class="msg" id="a-msg"></span></div><div class="faint" style="margin-top:8px">生日在「关系网」的熟人卡里填。当天会挂进背景，并在起床一小时后作为一次主动联系的由头。</div></div>';
       document.querySelectorAll('[data-del]').forEach(function (b) { b.onclick = function () { call('anniv.delete', { id: b.dataset.del }).then(load); }; });
       $('#a-add').onclick = function () { var v = $('#a-date').value.trim(); call('anniv.save', { item: { date: v, md: v, label: $('#a-label').value, uin: $('#a-uin').value } }).then(load, function (e) { flash($('#a-msg'), e.message); }); };
+    });
+  }
+
+  // ── 表达学习 ──
+  function expr() {
+    return call('expr.list').then(function (d) {
+      var row = function (r, pending) {
+        return '<div class="item" data-eid="' + esc(r.id) + '"><div class="main"><b>「' + esc(r.phrase) + '」</b> <span class="chip">' + esc(r.source || '') + '</span>' +
+          '<div class="muted">' + [r.situation && ('场合：' + r.situation), r.usage && ('用法：' + r.usage), r.avoid && ('别用在：' + r.avoid)].filter(Boolean).map(esc).join(' · ') + '</div>' +
+          (r.evidence ? '<div class="faint">原话：' + esc(r.evidence) + '</div>' : '') +
+          (pending ? '<div class="edit" hidden style="margin-top:8px"><div class="form"><label class="f">说法<input data-k="phrase" value="' + esc(r.phrase) + '"></label><label class="f">场合<input data-k="situation" value="' + esc(r.situation) + '"></label><label class="f">用法<input data-k="usage" value="' + esc(r.usage) + '"></label><label class="f wide">别用在<input data-k="avoid" value="' + esc(r.avoid) + '"></label></div></div>' : '') +
+          '</div><div class="row">' + (pending ? '<button class="btn pri" data-acc>采纳</button><button class="btn" data-ed>改写</button><button class="btn danger" data-rej>驳回</button>' : '<button class="btn danger" data-ret>退役</button>') + '</div></div>';
+      };
+      $('#view').innerHTML = (d.enabled ? '' : '<div class="card" style="margin-bottom:12px"><div class="muted">表达学习没开：在插件设置 →「表达学习与成长」里打开（它会读群聊里别人的话；学到的说法要在这里采纳后才会用上）。</div></div>') +
+        '<div class="card"><h3>待审核<span class="sp"></span><span class="faint">今天的素材 ' + d.sample + ' 句</span><button class="btn" id="e-learn">现在学一次</button></h3><div class="list">' + (d.pending.length ? d.pending.map(function (r) { return row(r, true); }).join('') : '<div class="empty">没有待审核的说法。每天凌晨会从当天的聊天里学一次。</div>') + '</div><div class="msg" id="e-msg"></div></div>' +
+        '<div class="card" style="margin-top:12px"><h3>已采纳（会挂进背景）<span class="sp"></span><span class="faint">' + d.rules.length + ' / 30</span></h3><div class="list">' + (d.rules.length ? d.rules.map(function (r) { return row(r, false); }).join('') : '<div class="empty">还没有采纳的说法。</div>') + '</div></div>' +
+        '<div class="card" style="margin-top:12px"><h3>分享包<span class="sp"></span><button class="btn" id="e-export">导出</button><button class="btn" id="e-import">导入</button></h3><textarea id="e-pack" rows="4" placeholder="导出的分享包会出现在这里；把别人给你的分享包贴进来再点「导入」（导入的说法先进待审核）。"></textarea><div class="msg" id="e-pmsg"></div></div>';
+      document.querySelectorAll('[data-eid]').forEach(function (row) {
+        var id = row.dataset.eid;
+        var b = function (sel, fn) { var el = row.querySelector(sel); if (el) el.onclick = fn; };
+        b('[data-ed]', function () { row.querySelector('.edit').hidden = false; });
+        b('[data-acc]', function () { var patch = {}; var ed = row.querySelector('.edit'); if (ed && !ed.hidden) ed.querySelectorAll('[data-k]').forEach(function (i) { patch[i.dataset.k] = i.value; }); call('expr.accept', { id: id, patch: patch }).then(load, function (e) { flash($('#e-msg'), e.message); }); });
+        b('[data-rej]', function () { call('expr.reject', { id: id }).then(load); });
+        b('[data-ret]', function () { if (confirm('退役这条说法？（之后也不会再学回来）')) call('expr.retire', { id: id }).then(load); });
+      });
+      $('#e-learn').onclick = function (e) { e.target.disabled = true; call('expr.learn').then(function (r) { if (r.skipped) { flash($('#e-msg'), r.skipped); e.target.disabled = false; } else load(); }, function (er) { flash($('#e-msg'), er.message); e.target.disabled = false; }); };
+      $('#e-export').onclick = function () { call('expr.export').then(function (r) { $('#e-pack').value = JSON.stringify(r.pack); flash($('#e-pmsg'), '已导出，复制上面的内容分享给别人', true); }); };
+      $('#e-import').onclick = function () { var v; try { v = JSON.parse($('#e-pack').value); } catch (e) { flash($('#e-pmsg'), '不是合法的 JSON'); return; } call('expr.import', { pack: v }).then(function (r) { flash($('#e-pmsg'), '导入了 ' + r.imported + ' 条（在待审核里）', true); load(); }, function (e) { flash($('#e-pmsg'), e.message); }); };
+    });
+  }
+
+  // ── 成长 ──
+  function growth() {
+    return call('growth.get').then(function (d) {
+      var g = d.growth || { skills: {}, milestones: [] };
+      var skills = Object.keys(g.skills).map(function (k) { return g.skills[k]; }).sort(function (a, b) { return b.xp - a.xp; });
+      var lv = function (xp) { return Math.min(10, Math.floor(xp / 5) + 1); };
+      $('#view').innerHTML = (d.enabled ? '' : '<div class="card" style="margin-bottom:12px"><div class="muted">成长记录没开：在插件设置 →「表达学习与成长」里打开。</div></div>') +
+        '<div class="grid"><div class="card"><h3>' + esc(d.persona || '角色') + ' 的技能<span class="sp"></span><button class="btn" id="g-review">回顾一次</button></h3><div class="list">' +
+        (skills.length ? skills.map(function (k) { var p = (k.xp % 5) / 5 * 100; return '<div class="item"><div class="main"><b>' + esc(k.name) + '</b> <span class="chip ac">Lv' + lv(k.xp) + '</span><div class="faint">' + esc(k.note || '') + (k.last ? ' · 最近 ' + esc(k.last) : '') + '</div><div style="height:6px;border-radius:999px;background:var(--bg-3);margin-top:6px;overflow:hidden"><div style="height:100%;width:' + (lv(k.xp) >= 10 ? 100 : p) + '%;background:var(--accent)"></div></div></div></div>'; }).join('') : '<div class="empty">还没有技能。每天凌晨会回顾这个人格昨天的生活，练过的事会慢慢长进。</div>') +
+        '</div><div class="msg" id="g-msg"></div></div>' +
+        '<div class="card"><h3>里程碑<span class="sp"></span><button class="btn danger" id="g-reset">清空</button></h3><div class="list">' + (g.milestones.length ? g.milestones.slice().reverse().map(function (m) { return '<div class="item"><time class="faint" style="flex:0 0 46px">' + esc(String(m.date).slice(5)) + '</time><div class="main">' + esc(m.text) + '</div></div>'; }).join('') : '<div class="empty">还没有里程碑。</div>') + '</div></div></div>' +
+        '<div class="faint" style="margin-top:8px">成长按人格分开记：多人格时，切到哪个人格就看哪个人格的。排第二天日程时会参考还在练的事。</div>';
+      $('#g-review').onclick = function (e) { e.target.disabled = true; call('growth.review').then(function (r) { if (r.skipped) flash($('#g-msg'), r.skipped); else load(); e.target.disabled = false; }, function (er) { flash($('#g-msg'), er.message); e.target.disabled = false; }); };
+      $('#g-reset').onclick = function () { if (confirm('清空这个人格的成长记录？')) call('growth.reset').then(load); };
     });
   }
 

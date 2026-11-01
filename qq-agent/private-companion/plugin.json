@@ -2,8 +2,8 @@
   "id": "private-companion",
   "apiVersion": 3,
   "name": "我会永远陪着你（QQ Agent 移植版）",
-  "version": "0.3.0",
-  "description": "原作 menglimi 的 AstrBot 插件「我会永远陪着你」的 QQ Agent 移植版：生活长任务、主动联系、私聊日记、熟人卡、互动纪念日、梦境、手机连接，附「陪伴小屋」页面。",
+  "version": "0.4.0",
+  "description": "原作 menglimi 的 AstrBot 插件「我会永远陪着你」的 QQ Agent 移植版：跟着当前人格过日子（生活长任务 / 梦 / 成长）、主动联系、私聊日记、熟人卡、互动纪念日、表达学习、手机连接，附「陪伴小屋」页面。",
   "author": "menglimi（原作） · yyyyyfl6（QQ Agent 移植）",
   "homepage": "https://github.com/yyyyyfl6/astrbot_plugin_private_companion",
   "entry": "index.mjs",
@@ -139,15 +139,15 @@
         "fields": [
           {
             "key": "roleName",
-            "label": "角色名",
+            "label": "角色名（读不到人格时才用）",
             "type": "text",
             "placeholder": "如 小鲸鱼"
           },
           {
             "key": "roleNote",
-            "label": "角色设定（简要，给副 API 排生活用）",
+            "label": "补充设定（可空，叠加在人格卡之后）",
             "type": "text",
-            "help": "身份、作息、爱好、所处世界。主对话的人设不受影响。",
+            "help": "比如作息、住在哪、最近在忙什么；人格卡里没写的生活细节",
             "placeholder": "如：大二学生，学美术，喜欢猫和夜跑，住学校宿舍"
           },
           {
@@ -158,7 +158,8 @@
             "min": 30,
             "max": 360
           }
-        ]
+        ],
+        "description": "后台排日程、推进生活、做梦、记成长都用**这个会话当前正在运行的人格**（与主对话同一张角色卡，多人格切换后跟着变）。下面两项只是补充，可以留空。"
       },
       {
         "key": "proactive",
@@ -253,6 +254,24 @@
           {
             "key": "phoneEvents",
             "label": "到了新地方 / 电量很低时主动关心",
+            "type": "boolean",
+            "default": true
+          }
+        ]
+      },
+      {
+        "key": "learn",
+        "title": "表达学习与成长",
+        "fields": [
+          {
+            "key": "exprEnabled",
+            "label": "表达学习：从别人的说话方式里学（会读群聊里别人的话；学到的要在「陪伴小屋」里审核后才用）",
+            "type": "boolean",
+            "default": false
+          },
+          {
+            "key": "growthEnabled",
+            "label": "成长记录：角色在自己的生活里慢慢学会东西",
             "type": "boolean",
             "default": true
           }

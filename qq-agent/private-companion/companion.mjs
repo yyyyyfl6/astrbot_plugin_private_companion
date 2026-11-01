@@ -17,6 +17,8 @@
 
 import { Phone } from './phone.mjs';
 import { Relations } from './relations.mjs';
+import { Expressions } from './expressions.mjs';
+import { Growth } from './growth.mjs';
 
 const HOUR = 3600_000;
 const DAY = 24 * HOUR;
@@ -61,7 +63,10 @@ export function readSettings(raw = {}) {
     phoneLocation: s.phoneLocation !== false,
     phoneActivity: s.phoneActivity === true,
     phoneHealth: s.phoneHealth === true,
-    phoneEvents: s.phoneEvents !== false
+    phoneEvents: s.phoneEvents !== false,
+    // 表达学习（默认关：会读群聊里别人的话）与成长记录
+    exprEnabled: s.exprEnabled === true,
+    growthEnabled: s.growthEnabled !== false
   };
 }
 
@@ -79,7 +84,18 @@ export function parseJson(text) {
   try { return JSON.parse(t.slice(a, b + 1)); } catch { return null; }
 }
 
-const roleLine = (s) => `角色：${s.roleName || '（未命名）'}。设定：${s.roleNote || '一个普通的年轻人，作息规律。'}`;
+/**
+ * 给副 API 的角色描述。persona = 这个会话**当前正在运行的人格**（宿主 cap.context.persona 读来的，
+ * 和主对话同一张角色卡）；插件设置里的「角色名 / 角色设定」只作补充（没有人格信息时才当主设定）。
+ */
+export const roleLine = (s, persona = null) => {
+  const name = persona?.name || s.roleName || '（未命名）';
+  const card = String(persona?.roleText || '').replace(/\s+/g, ' ').trim().slice(0, 1500);
+  if (card) return `角色：${name}。人设（与主对话同一张角色卡，节选）：${card}${s.roleNote ? `\n补充设定：${s.roleNote}` : ''}`;
+  return `角色：${name}。设定：${s.roleNote || '一个普通的年轻人，作息规律。'}`;
+};
+/** 人格的存储键：默认人格沿用老键（升级不丢数据），其他人格各存一份。 */
+const lifeKey = (pk, date) => (pk && pk !== 'default' ? `life:${pk}:${date}` : `life:${date}`);
 
 export class Companion {
   constructor({ host, now = () => Date.now(), random = Math.random } = {}) {
@@ -91,6 +107,9 @@ export class Companion {
     this.phoneEvents = new Map();   // uin -> { kind, note }（手机上报产生的主动由头，用一次就清）
     this.rel = new Relations({ host, now });
     this.groupSaid = new Map();     // uin -> [{ group, text, ts }]：陪伴对象刚在群里说的话（跨窗口承接，只放内存）
+    this.expr = new Expressions({ host, now });
+    this.growth = new Growth({ host, now });
+    this.personaCache = new Map();  // uin -> { at, persona }
     this.phone = new Phone({
       host, now, settings: () => this.settings,
       log: (level, msg) => host.log?.(level, msg),
@@ -105,19 +124,42 @@ export class Companion {
   /** 立即刷新某个陪伴对象的背景（生活 + 手机 + 日记）。 */
   async refreshContext(uin) {
     if (!this.settings.targets.includes(uin)) return;
-    const life = await this.life();
+    const persona = await this.personaOf(uin);
+    const life = await this.life(undefined, persona.pk);
     const book = await this.diary(uin);
-    await this.host.setContext(`private:${uin}`, this.contextText(life, book, uin, await this.extras(uin)), 30);
+    await this.host.setContext(`private:${uin}`, this.contextText(life, book, uin, await this.extras(uin, persona)), 30);
+  }
+
+  /**
+   * 这个陪伴对象的私聊**当前正在运行的人格**（多人格切换后跟着变）。读不到（老宿主 / 单测）时回落到插件设置。
+   * 返回 { pk 存储用的人格键, name, roleText, skinId }；1 分钟缓存。
+   */
+  async personaOf(uin) {
+    const hit = this.personaCache.get(uin);
+    if (hit && this.now() - hit.at < 60_000) return hit.persona;
+    let p = null;
+    try { p = this.host.persona ? await this.host.persona(`private:${uin}`) : null; } catch { p = null; }
+    const persona = {
+      pk: String(p?.skinId || '') || 'default',
+      skinId: String(p?.skinId || ''),
+      name: str(p?.label || p?.botName || this.settings.roleName, 30),
+      roleText: String(p?.roleText || '')
+    };
+    this.personaCache.set(uin, { at: this.now(), persona });
+    return persona;
   }
 
   /** 背景里除生活 / 日记 / 手机之外的部分：熟人卡、今天的日子、梦、刚在群里说的话。 */
-  async extras(uin) {
+  async extras(uin, persona = null) {
     const now = this.now();
+    const pk = persona?.pk || 'default';
     const card = await this.rel.card(uin);
     const dates = await this.rel.datesOn(uin, bjDate(now).slice(5));
-    const dream = bjMinutes(now) < 12 * 60 ? (await this.rel.dreams())[bjDate(now)] || null : null;
+    const dream = bjMinutes(now) < 12 * 60 ? (await this.rel.dreams(pk))[bjDate(now)] || null : null;
     const said = (this.groupSaid.get(uin) || []).filter((x) => now - x.ts < 30 * 60_000);
-    return { card, dates, dream, said };
+    const growth = this.growth.summary(await this.growth.get(pk));
+    const exprRules = this.settings.exprEnabled ? (await this.expr.state()).rules : [];
+    return { card, dates, dream, said, growth, exprRules };
   }
 
   async #log(entry) {
@@ -134,26 +176,28 @@ export class Companion {
 
   // ── 生活长任务 ───────────────────────────────────────────────
 
-  async life(date = bjDate(this.now())) { return this.#get(`life:${date}`, null); }
+  async life(date = bjDate(this.now()), pk = 'default') { return this.#get(lifeKey(pk, date || bjDate(this.now())), null); }
 
-  async ensurePlan() {
+  async ensurePlan(persona = null) {
     const s = this.settings;
+    const pk = persona?.pk || 'default';
     const date = bjDate(this.now());
-    const cur = await this.life(date);
+    const cur = await this.life(date, pk);
     if (cur?.plan?.length) return cur;
+    const growth = this.growth.summary(await this.growth.get(pk));
     const weekday = '日一二三四五六'[new Date(this.now() + 8 * HOUR).getUTCDay()];
     const r = await this.host.llm([
       { role: 'system', content: '你在给一个虚拟角色排"今天的生活日程"（节目单）。根据角色设定写出今天从起床到睡觉的 6~9 个时段，符合身份、具体、有生活感，今天和别的日子可以不一样。只输出 JSON：{"items":[{"time":"08:00","text":"起床，赖床五分钟"}],"mood":"今天开头的心情（短语）"}。time 为 24 小时制 HH:MM 升序；text ≤ 20 字。' },
-      { role: 'user', content: `${roleLine(s)}\n今天：${date}（星期${weekday}）\n起床约 ${pad(Math.floor(s.quietEnd / 60))}:${pad(s.quietEnd % 60)}，睡觉约 ${pad(Math.floor(s.quietStart / 60))}:${pad(s.quietStart % 60)}。` }
+      { role: 'user', content: `${roleLine(s, persona)}\n${growth ? `${growth}（还在练的事可以接着安排）\n` : ''}今天：${date}（星期${weekday}）\n起床约 ${pad(Math.floor(s.quietEnd / 60))}:${pad(s.quietEnd % 60)}，睡觉约 ${pad(Math.floor(s.quietStart / 60))}:${pad(s.quietStart % 60)}。` }
     ], { maxTokens: 700, temperature: 0.9 });
     const j = parseJson(r);
     const plan = (Array.isArray(j?.items) ? j.items : [])
       .map((it) => ({ time: /^\d{1,2}:\d{2}$/.test(String(it?.time || '').trim()) ? String(it.time).trim().padStart(5, '0') : '', text: str(it?.text, 30) }))
       .filter((it) => it.time && it.text).sort((a, b) => a.time.localeCompare(b.time)).slice(0, 12);
     if (plan.length < 3) throw new Error('副 API 没排出像样的日程');
-    const life = { date, plan, mood: str(j?.mood, 20) || '平常', log: [], thoughts: [], nextStepAt: this.now() + this.#jitter(20, 60), updatedAt: this.now() };
-    await this.host.set(`life:${date}`, life);
-    await this.host.set(`life:${bjDate(this.now() - 2 * DAY)}`, null);   // 只留今天和昨天
+    const life = { date, pk, persona: persona?.name || '', plan, mood: str(j?.mood, 20) || '平常', log: [], thoughts: [], nextStepAt: this.now() + this.#jitter(20, 60), updatedAt: this.now() };
+    await this.host.set(lifeKey(pk, date), life);
+    await this.host.set(lifeKey(pk, bjDate(this.now() - 2 * DAY)), null);   // 只留今天和昨天
     return life;
   }
 
@@ -168,13 +212,13 @@ export class Companion {
   #jitter(minMin, maxMin) { return Math.round((minMin + this.random() * (maxMin - minMin)) * 60_000); }
 
   /** 推进一步：副 API 写"这段时间发生了什么"，可能产生一个想跟对方说的念头。 */
-  async stepLife(life) {
+  async stepLife(life, persona = null) {
     const s = this.settings;
     const cur = this.current(life);
     const recent = life.log.slice(-4).map((e) => `${e.time} ${e.text}`).join('\n') || '（还没有）';
     const r = await this.host.llm([
       { role: 'system', content: '你在推进一个虚拟角色的日常生活（持续进行的长任务）。根据设定、今天的日程、此刻的安排和之前发生的事，写下"刚刚这段时间发生了什么"。要具体、生活化、前后连贯，可以有小意外和小情绪，不要每次都很圆满。只输出 JSON：{"event":"一句话，≤40字","mood":"此刻心情（短语）","thought":"如果这件事让你想跟TA分享/问问TA，写一句你想说的话的大意（≤40字），否则写空串"}' },
-      { role: 'user', content: `${roleLine(s)}\n现在 ${bjHm(this.now())}，按日程此刻在：${cur?.text || '（日程开始前）'}\n今天的日程：${life.plan.map((p) => `${p.time} ${p.text}`).join('；')}\n今天已经发生的：\n${recent}\n现在的心情：${life.mood}` }
+      { role: 'user', content: `${roleLine(s, persona)}\n现在 ${bjHm(this.now())}，按日程此刻在：${cur?.text || '（日程开始前）'}\n今天的日程：${life.plan.map((p) => `${p.time} ${p.text}`).join('；')}\n今天已经发生的：\n${recent}\n现在的心情：${life.mood}` }
     ], { maxTokens: 300, temperature: 0.95 });
     const j = parseJson(r);
     const event = str(j?.event, 60);
@@ -186,7 +230,7 @@ export class Companion {
     const step = s.lifeStep;
     life.nextStepAt = this.now() + this.#jitter(step * 0.6, step * 1.4);
     life.updatedAt = this.now();
-    await this.host.set(`life:${life.date}`, life);
+    await this.host.set(lifeKey(life.pk, life.date), life);
     return life;
   }
 
@@ -204,6 +248,8 @@ export class Companion {
   /** 入站消息（宿主 observe 投来的，只有对方发的）。 */
   async observe(event) {
     const g = /^group:(\d+)$/.exec(String(event?.chatKey || ''));
+    // 表达学习的素材：别人的发言（群聊 + 私聊；只放内存）
+    if (this.settings.exprEnabled) this.expr.collect(event, bjDate(this.now()));
     if (g) {
       // 跨窗口承接：陪伴对象刚在群里说的话（只记 TA 本人的、只放内存、30 分钟）
       const uin = String(event.senderId || '');
@@ -280,7 +326,7 @@ export class Companion {
     const s = this.settings;
     const parts = [];
     const phoneText = uin ? this.phone.contextText(uin) : '';
-    const { card = null, dates = [], dream = null, said = [] } = extras || {};
+    const { card = null, dates = [], dream = null, said = [], growth = '', exprRules = [] } = extras || {};
     if (life) {
       const cur = this.current(life);
       const pending = life.thoughts.filter((t) => !t.used).slice(-1)[0];
@@ -298,6 +344,9 @@ export class Companion {
     const cardText = this.rel.cardText(card);
     if (cardText) parts.push(cardText);
     if (said.length) parts.push(`【TA 刚在群里说过（只是 TA 本人的话，可以自然承接，别提群里其他人）】\n${said.slice(-3).map((x) => `${bjHm(x.ts)} ${x.text}`).join('\n')}`);
+    if (growth) parts.push(`【你的成长】${growth}。这是你自己的事，聊到相关话题时可以自然提起。`);
+    const exprText = this.expr.contextText(exprRules);
+    if (exprText) parts.push(exprText);
     if (dream) parts.push(`【你昨晚做的梦】${dream.text}（醒来的心情：${dream.mood || '说不清'}）。想说就说，不想说就当没发生。`);
     if (s.diaryEnabled && s.diaryDays > 0 && book) {
       const today = bjDate(this.now());
@@ -313,21 +362,22 @@ export class Companion {
   // ── 主动联系 ───────────────────────────────────────────────
 
   /** 起床后做一次梦（依据昨天的生活与心情）；已经有了 / 还在睡就跳过。 */
-  async ensureDream() {
+  async ensureDream(persona = null) {
     const s = this.settings;
     const now = this.now();
     const m = bjMinutes(now);
+    const pk = persona?.pk || 'default';
     if (inQuiet(s, now) || m < s.quietEnd || m >= s.quietEnd + 240) return '';
     const today = bjDate(now);
-    if ((await this.rel.dreams())[today]) return '';
-    const y = await this.life(bjDate(now - DAY));
+    if ((await this.rel.dreams(pk))[today]) return '';
+    const y = await this.life(bjDate(now - DAY), pk);
     const r = await this.host.llm([
       { role: 'system', content: '你在给一个虚拟角色写"昨晚的梦"。梦要像真的梦：片段化、有点离奇、会把白天的事和人揉在一起，但别太长。只输出 JSON：{"text":"梦的内容，≤80字","mood":"醒来时的心情，短语"}' },
-      { role: 'user', content: `${roleLine(s)}\n昨天发生的事：${(y?.log || []).map((e) => e.text).join('；') || '平平常常的一天'}\n昨天的心情：${y?.mood || '平常'}` }
+      { role: 'user', content: `${roleLine(s, persona)}\n昨天发生的事：${(y?.log || []).map((e) => e.text).join('；') || '平平常常的一天'}\n昨天的心情：${y?.mood || '平常'}` }
     ], { maxTokens: 200, temperature: 1 });
     const j = parseJson(r);
     if (!str(j?.text, 10)) return '';
-    await this.rel.saveDream(today, { text: j.text, mood: j.mood });
+    await this.rel.saveDream(today, { text: j.text, mood: j.mood }, pk);
     return str(j.text, 30);
   }
 
@@ -385,27 +435,55 @@ export class Companion {
     try {
       const s = this.settings;
       if (!s.targets.length) { report.life = '没填陪伴对象'; return report; }
-      let life = await this.life();
       const quiet = inQuiet(s, this.now());
-      try {
-        if (!life && !quiet) life = await this.ensurePlan();
-        if (life && !quiet && this.now() >= (life.nextStepAt || 0)) life = await this.stepLife(life);
-        report.life = quiet ? '睡觉中' : (life ? `${this.current(life)?.text || '日程开始前'} · ${life.mood}` : '');
-      } catch (error) {
-        report.life = `生活推进失败：${error?.message ?? error}`;
-        this.host.log('warn', report.life);
-      }
       const yesterday = bjDate(this.now() - DAY);
-      try { report.dream = await this.ensureDream(); } catch (error) { this.host.log('warn', `梦没做成：${error?.message ?? error}`); }
+      // 每个陪伴对象的私聊可能在跑不同的人格：每个人格各过各的日子（同一人格只推进一次）
+      const personas = new Map();   // pk -> persona
+      const personaOfUin = new Map();
+      for (const uin of s.targets) {
+        const p = await this.personaOf(uin);
+        personaOfUin.set(uin, p);
+        if (!personas.has(p.pk)) personas.set(p.pk, p);
+      }
+      const lives = new Map();
+      for (const [pk, persona] of personas) {
+        let life = await this.life(undefined, pk);
+        try {
+          if (!life && !quiet) life = await this.ensurePlan(persona);
+          if (life && !quiet && this.now() >= (life.nextStepAt || 0)) life = await this.stepLife(life, persona);
+        } catch (error) {
+          report.life = `生活推进失败：${error?.message ?? error}`;
+          this.host.log('warn', report.life);
+        }
+        lives.set(pk, life);
+        try { const dream = await this.ensureDream(persona); if (dream) report.dream = dream; } catch (error) { this.host.log('warn', `梦没做成：${error?.message ?? error}`); }
+        // 成长：凌晨 3 点后回顾这个人格昨天的生活
+        if (s.growthEnabled && bjMinutes(this.now()) >= 180) {
+          try { await this.growth.review(pk, yesterday, await this.life(yesterday, pk), roleLine(s, persona)); } catch (error) { this.host.log('warn', `成长没记上：${error?.message ?? error}`); }
+        }
+      }
+      // 表达学习：凌晨 3 点后每天一次
+      if (s.exprEnabled && bjMinutes(this.now()) >= 180) {
+        try { report.expr = await this.expr.learn({ day: bjDate(this.now()) }); } catch (error) { this.host.log('warn', `表达学习失败：${error?.message ?? error}`); }
+      }
+      if (s.exprEnabled) {
+        // 不是陪伴对象的会话也能用上学来的说法（陪伴对象的私聊在自己那段背景里已经带上）
+        const rules = (await this.expr.state()).rules;
+        await this.host.setContext('*', this.expr.contextText(rules), 60);
+      }
+      const first = lives.get(personaOfUin.get(s.targets[0])?.pk);
+      if (!report.life) report.life = quiet ? '睡觉中' : (first ? `${this.current(first)?.text || '日程开始前'} · ${first.mood}` : '');
       for (const uin of s.targets) {
         const chatKey = `private:${uin}`;
+        const persona = personaOfUin.get(uin);
+        const life = lives.get(persona.pk) || null;
         let c = await this.chat(uin);
         // 日记：凌晨 3 点后把昨天定稿
         let book = await this.diary(uin);
         if (s.diaryEnabled && bjMinutes(this.now()) >= 180 && !book[yesterday] && c.buffer.some((b) => b.ts < dayStart(bjDate(this.now())))) {
           try { await this.writeDiary(uin, yesterday); book = await this.diary(uin); c = await this.chat(uin); } catch (error) { this.host.log('warn', `日记没写成：${error?.message ?? error}`); }
         }
-        await this.host.setContext(chatKey, this.contextText(life, book, uin, await this.extras(uin)), 30);
+        await this.host.setContext(chatKey, this.contextText(life, book, uin, await this.extras(uin, persona)), 30);
         const d = await this.decide(uin, c, life);
         const gapScale = ({ less: 1.5, more: 0.6 })[(await this.rel.card(uin))?.proactiveMode] || 1;
         if (d.schedule) {
@@ -429,7 +507,7 @@ export class Companion {
         await this.#log({ uin, kind: d.kind, note: d.note });
         if (d.thought && life) {
           d.thought.used = true;
-          await this.host.set(`life:${life.date}`, life);
+          await this.host.set(lifeKey(life.pk, life.date), life);
         }
         try {
           await this.host.wake(chatKey, d.note);
@@ -446,14 +524,18 @@ export class Companion {
     }
   }
 
-  async status() {
-    const life = await this.life();
+  /** 状态（页面 / 检测用）。uin 给了就看那个人当前人格的生活，否则看第一个陪伴对象的。 */
+  async status(uin = '') {
+    const focus = uin || this.settings.targets[0] || '';
+    const persona = focus ? await this.personaOf(focus) : { pk: 'default', name: this.settings.roleName };
+    const life = await this.life(undefined, persona.pk);
     const chats = [];
     for (const uin of this.settings.targets) {
       const c = await this.chat(uin);
-      chats.push({ uin, lastUser: c.lastUserAt ? bjHm(c.lastUserAt) : '-', next: c.nextAt ? `${bjDate(c.nextAt).slice(5)} ${bjHm(c.nextAt)}` : '-', wakesToday: c.wakeDay === bjDate(this.now()) ? c.wakes : 0, diaryDays: Object.keys(await this.diary(uin)).length });
+      chats.push({ uin, persona: (await this.personaOf(uin)).name, lastUser: c.lastUserAt ? bjHm(c.lastUserAt) : '-', next: c.nextAt ? `${bjDate(c.nextAt).slice(5)} ${bjHm(c.nextAt)}` : '-', wakesToday: c.wakeDay === bjDate(this.now()) ? c.wakes : 0, diaryDays: Object.keys(await this.diary(uin)).length });
     }
     return {
+      persona: { pk: persona.pk, name: persona.name, fromHost: Boolean(persona.roleText) },
       today: life ? { plan: life.plan, now: this.current(life), mood: life.mood, log: life.log, thoughts: life.thoughts } : null,
       chats,
       phone: await this.phone.summary(),

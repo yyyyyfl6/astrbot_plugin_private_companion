@@ -23,6 +23,8 @@ const host = {
   wake: (chatKey, note) => callHost('cap.wake.request', { chatKey, note }),
   get: async (key) => (await callHost('cap.storage.get', { key })).value,
   set: (key, value) => callHost('cap.storage.set', { key, value }),
+  // 这个会话当前正在运行的人格（多人格切换后跟着变）：生活 / 梦 / 成长都按它来
+  persona: (chatKey) => callHost('cap.context.persona', { chatKey }),
   // 设置里的 secret 字段（手机配对令牌），宿主加密存储
   secret: async (key) => ((await callHost('cap.secrets.get', {})).values || {})[key] || '',
   log: (level, message) => { callHost('cap.log.write', { level, message }).catch(() => {}); }
@@ -61,7 +63,8 @@ async function handle(m) {
       const { name, args = {}, context = {} } = m.params || {};
       await refreshSettings();
       if (name === 'life_status') {
-        const st = await companion.status();
+        const pm = /^private:(\d+)$/.exec(String(context.chatKey || ''));
+        const st = await companion.status(pm && companion.settings.targets.includes(pm[1]) ? pm[1] : '');
         if (!st.today) return { note: '今天的生活还没开始记录（日程还没排好）。照常聊天即可，不要编具体安排。' };
         return { now: st.today.now, mood: st.today.mood, plan: st.today.plan, happened: st.today.log };
       }

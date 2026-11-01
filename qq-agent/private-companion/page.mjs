@@ -1,6 +1,6 @@
 // 「陪伴小屋」页面的 RPC（QQ Agent 插件接口 v3 的 page 能力；页面本体在 page.html）。
 // 控制台把页面放在沙箱 iframe 里，页面里的按钮经宿主转到这里：只能读写本插件自己的数据。
-import { bjDate, bjHm } from './companion.mjs';
+import { bjDate, bjHm, roleLine } from './companion.mjs';
 
 const clip = (v, n) => String(v ?? '').trim().slice(0, n);
 
@@ -13,9 +13,10 @@ export async function pageCall(c, method, params = {}) {
       const today = bjDate(c.now());
       return {
         now: `${today} ${bjHm(c.now())}`,
+        persona: st.persona,
         settings: { targets: s.targets, roleName: s.roleName, roleNote: s.roleNote, proactive: s.proactive, quiet: `${String(Math.floor(s.quietStart / 60)).padStart(2, '0')}:${String(s.quietStart % 60).padStart(2, '0')}~${String(Math.floor(s.quietEnd / 60)).padStart(2, '0')}:${String(s.quietEnd % 60).padStart(2, '0')}`, dailyMax: s.dailyMax, gap: `${s.minGap}~${s.maxGap}`, phone: s.phoneEnabled },
         today: st.today,
-        dream: (await c.rel.dreams())[today] || null,
+        dream: (await c.rel.dreams(st.persona.pk))[today] || null,
         chats: st.chats,
         phone: st.phone,
         upcoming: (await c.rel.upcoming(s.targets, today, 30)).slice(0, 8),
@@ -51,14 +52,46 @@ export async function pageCall(c, method, params = {}) {
       await c.host.set(`diary:${uin}`, book);
       return { ok: true };
     }
-    case 'life.get': return { today: (await c.status()).today, yesterday: await c.life(bjDate(c.now() - 86400_000)), dreams: await c.rel.dreams() };
+    case 'life.get': {
+      const p = s.targets[0] ? await c.personaOf(s.targets[0]) : { pk: 'default' };
+      return { persona: p.name, today: (await c.status()).today, yesterday: await c.life(bjDate(c.now() - 86400_000), p.pk), dreams: await c.rel.dreams(p.pk) };
+    }
     case 'life.replan': {
-      await c.host.set(`life:${bjDate(c.now())}`, null);
-      return { life: await c.ensurePlan() };
+      const p = s.targets[0] ? await c.personaOf(s.targets[0]) : { pk: 'default' };
+      await c.host.set(p.pk !== 'default' ? `life:${p.pk}:${bjDate(c.now())}` : `life:${bjDate(c.now())}`, null);
+      return { life: await c.ensurePlan(p) };
     }
     case 'life.step': {
-      const life = (await c.life()) || await c.ensurePlan();
-      return { life: await c.stepLife(life) };
+      const p = s.targets[0] ? await c.personaOf(s.targets[0]) : { pk: 'default' };
+      const life = (await c.life(undefined, p.pk)) || await c.ensurePlan(p);
+      return { life: await c.stepLife(life, p) };
+    }
+    // ── 表达学习 ──
+    case 'expr.list': return { ...(await c.expr.state()), enabled: s.exprEnabled, sample: c.expr.sample.length };
+    case 'expr.learn': return c.expr.learn({ force: true, day: bjDate(c.now()) });
+    case 'expr.accept': return { rule: await c.expr.accept(clip(params.id, 24), params.patch || {}) };
+    case 'expr.reject': return { ok: await c.expr.reject(clip(params.id, 24)) };
+    case 'expr.retire': return { ok: await c.expr.retire(clip(params.id, 24)) };
+    case 'expr.add': return { rule: await c.expr.add(params.rule || {}) };
+    case 'expr.export': return { pack: await c.expr.exportPack() };
+    case 'expr.import': return c.expr.importPack(params.pack);
+    // ── 成长记录（当前人格） ──
+    case 'growth.get': {
+      const p = s.targets[0] ? await c.personaOf(s.targets[0]) : { pk: 'default', name: s.roleName };
+      return { persona: p.name, enabled: s.growthEnabled, growth: await c.growth.get(p.pk) };
+    }
+    case 'growth.review': {
+      const p = s.targets[0] ? await c.personaOf(s.targets[0]) : { pk: 'default' };
+      const date = bjDate(c.now() - 86400_000);
+      const g = await c.growth.get(p.pk);
+      if (g.reviewed === date) { g.reviewed = ''; await c.host.set(c.growth.key(p.pk), g); }
+      const today = await c.life(undefined, p.pk);
+      const life = (await c.life(date, p.pk)) || today;
+      return c.growth.review(p.pk, life?.date || date, life, roleLine(s, p));
+    }
+    case 'growth.reset': {
+      const p = s.targets[0] ? await c.personaOf(s.targets[0]) : { pk: 'default' };
+      return { ok: await c.growth.reset(p.pk) };
     }
     case 'log.list': return { log: await c.host.get('log') || [], lastTick: c.lastReport || null };
     case 'proactive.test': {

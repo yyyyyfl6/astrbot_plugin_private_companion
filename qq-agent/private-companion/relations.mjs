@@ -158,13 +158,14 @@ export class Relations {
   }
 
   // ── 梦境 ──
-  async dreams() { return this.#get('dreams', {}); }
+  /** 梦按人格分开存（默认人格沿用老键 dreams）。 */
+  async dreams(pk = 'default') { return this.#get(pk && pk !== 'default' ? `dreams:${pk}` : 'dreams', {}); }
 
-  async saveDream(date, dream) {
-    const book = await this.dreams();
+  async saveDream(date, dream, pk = 'default') {
+    const book = await this.dreams(pk);
     book[date] = { text: str(dream.text, 240), mood: str(dream.mood, 20) };
     for (const d of Object.keys(book).sort().slice(0, -MAX_DREAMS)) delete book[d];
-    await this.host.set('dreams', book);
+    await this.host.set(pk && pk !== 'default' ? `dreams:${pk}` : 'dreams', book);
     return book[date];
   }
 }
