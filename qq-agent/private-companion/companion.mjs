@@ -15,6 +15,8 @@
 // 宿主能力通过 host 注入：{ llm(messages, opts), setContext(chatKey, text, ttl), wake(chatKey, note),
 //   get(key), set(key, value), log(level, msg) }。
 
+import { Phone } from './phone.mjs';
+
 const HOUR = 3600_000;
 const DAY = 24 * HOUR;
 const MAX_TARGETS = 4;
@@ -51,7 +53,14 @@ export function readSettings(raw = {}) {
     waitReply: s.waitReply !== false,
     morning: s.morning !== false,
     diaryEnabled: s.diaryEnabled !== false,
-    diaryDays: clampNum(s.diaryDays, 0, 7, 3)
+    diaryDays: clampNum(s.diaryDays, 0, 7, 3),
+    // 手机连接（phone.mjs）
+    phoneEnabled: s.phoneEnabled === true,
+    phoneUser: String(s.phoneUser || '').replace(/\D/g, ''),
+    phoneLocation: s.phoneLocation !== false,
+    phoneActivity: s.phoneActivity === true,
+    phoneHealth: s.phoneHealth === true,
+    phoneEvents: s.phoneEvents !== false
   };
 }
 
@@ -78,6 +87,24 @@ export class Companion {
     this.random = random;
     this.settings = readSettings({});
     this.busy = false;
+    this.phoneEvents = new Map();   // uin -> { kind, note }（手机上报产生的主动由头，用一次就清）
+    this.phone = new Phone({
+      host, now, settings: () => this.settings,
+      log: (level, msg) => host.log?.(level, msg),
+      onUpdate: (uin, info) => {
+        if (info?.event && this.settings.phoneEvents) this.phoneEvents.set(uin, info.event);
+        // 手机一有新数据就刷新背景（不等下一次 5 分钟巡检）
+        this.refreshContext(uin).catch(() => {});
+      }
+    });
+  }
+
+  /** 立即刷新某个陪伴对象的背景（生活 + 手机 + 日记）。 */
+  async refreshContext(uin) {
+    if (!this.settings.targets.includes(uin)) return;
+    const life = await this.life();
+    const book = await this.diary(uin);
+    await this.host.setContext(`private:${uin}`, this.contextText(life, book, uin), 30);
   }
 
   setSettings(raw) { this.settings = readSettings(raw); }
@@ -209,9 +236,10 @@ export class Companion {
 
   // ── 挂背景 ─────────────────────────────────────────────────
 
-  contextText(life, book) {
+  contextText(life, book, uin = '') {
     const s = this.settings;
     const parts = [];
+    const phoneText = uin ? this.phone.contextText(uin) : '';
     if (life) {
       const cur = this.current(life);
       const pending = life.thoughts.filter((t) => !t.used).slice(-1)[0];
@@ -224,6 +252,7 @@ export class Companion {
         '这些是你的生活背景：对方问起或聊到相关话题时自然带出，不要每句都提，也不要和这里矛盾。'
       ].filter(Boolean).join('\n'));
     }
+    if (phoneText) parts.push(phoneText);
     if (s.diaryEnabled && s.diaryDays > 0 && book) {
       const today = bjDate(this.now());
       const days = Object.keys(book).filter((d) => d < today).sort().reverse().slice(0, s.diaryDays);
@@ -250,6 +279,9 @@ export class Companion {
     if (s.waitReply && c.lastWakeAt && c.lastUserAt < c.lastWakeAt && now - c.lastWakeAt < DAY) return { blocked: '上一条对方还没回' };
     if (c.lastUserAt && now - c.lastUserAt < 20 * 60_000) return { blocked: '刚聊过' };
     const m = bjMinutes(now);
+    // 手机上报的由头（刚到了某个地方 / 电量很低）：不等随机间隔，但离上次主动至少 30 分钟
+    const pe = this.phoneEvents.get(uin);
+    if (pe && (!c.lastWakeAt || now - c.lastWakeAt >= 30 * 60_000)) return { ...pe, phoneEvent: true };
     // 起床后的早安：不等随机间隔
     if (s.morning && !kinds.includes('morning') && m >= s.quietEnd && m < s.quietEnd + 120 && c.lastUserAt < dayStart(today) + s.quietEnd * 60_000) {
       const cur = life ? this.current(life) : null;
@@ -296,7 +328,7 @@ export class Companion {
         if (s.diaryEnabled && bjMinutes(this.now()) >= 180 && !book[yesterday] && c.buffer.some((b) => b.ts < dayStart(bjDate(this.now())))) {
           try { await this.writeDiary(uin, yesterday); book = await this.diary(uin); c = await this.chat(uin); } catch (error) { this.host.log('warn', `日记没写成：${error?.message ?? error}`); }
         }
-        await this.host.setContext(chatKey, this.contextText(life, book), 30);
+        await this.host.setContext(chatKey, this.contextText(life, book, uin), 30);
         const d = await this.decide(uin, c, life);
         if (d.schedule) {
           c.nextAt = this.now() + this.#jitter(s.minGap, s.maxGap);
@@ -313,6 +345,7 @@ export class Companion {
         c.lastWakeAt = this.now();
         c.nextAt = this.now() + this.#jitter(s.minGap, s.maxGap);
         await this.saveChat(uin, c);
+        if (d.phoneEvent) this.phoneEvents.delete(uin);
         if (d.thought && life) {
           d.thought.used = true;
           await this.host.set(`life:${life.date}`, life);
@@ -342,6 +375,7 @@ export class Companion {
     return {
       today: life ? { plan: life.plan, now: this.current(life), mood: life.mood, log: life.log, thoughts: life.thoughts } : null,
       chats,
+      phone: await this.phone.summary(),
       lastTick: this.lastReport || null
     };
   }

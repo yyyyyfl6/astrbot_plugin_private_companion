@@ -32,6 +32,8 @@ QQ Agent 自身就是连续对话的工作流（会话线程、主动开话题�
 | 未完话头 `followup_review` | 日记里的 `followups`，次日作为主动由头 |
 | 日记 | `diary:<QQ>`，按日期，保留 30 天 |
 | 自我页角色档案 | 插件设置「角色名 / 角色设定」（只给后台任务用，主对话人设不变） |
+| Reality 的 Android 移动网关（`mobile_gateway.py`） | `phone.mjs`：同一套路由与响应信封（health / pair / status / snapshot / location / heartbeat / revoke / device/status / device/activity / telemetry / session/close），会话令牌、配对限频、私密应用隐藏、短时过期同口径；经宿主 `inbound` 能力接收请求 |
+| 地点变化通知（`host_delivery` 的 reality_location_event） | 到了新的有名字的地点 → 主动由头；另加"电量很低"由头 |
 
 ## 依赖的宿主能力（QQ Agent 插件接口 apiVersion 3）
 
@@ -40,6 +42,8 @@ QQ Agent 自身就是连续对话的工作流（会话线程、主动开话题�
 | `llm` | 副 API：排日程、推进生活、写日记 | 供应商取自控制台已添加的；Key 只在宿主解析；每天 300 次（`plugins.limits.llmDailyCalls`） |
 | `context` | 把生活状态与日记挂进私聊背景 | 每段 ≤1500 字、有过期时间、停用插件即撤；按"第三方背景"标注 |
 | `wake` | 提示主模型主动联系 | 同一会话 ≥20 分钟、每天 30 次；白名单 / 作息 / 预算照常生效 |
+| `inbound` | 接收安卓陪伴终端的请求 | `/plugin-hooks/private-companion/…` 或独立端口（默认 6322）；宿主限体积 / 频率 / 请求头，鉴权由插件的配对令牌做 |
+| `secrets` | 保存手机配对令牌 | 宿主 AES-256-GCM 加密，控制台不回显 |
 | `observe` / `schedule` / `storage` / `config` / `log` / `tools` | 收对方消息、5 分钟巡检、状态、设置、日志、两个工具 | 见 QQ Agent `docs/PLUGINS.md` |
 
 ## 路线（尚未移植）
@@ -47,12 +51,13 @@ QQ Agent 自身就是连续对话的工作流（会话线程、主动开话题�
 - 关系网熟人卡（称呼 / 关系 / 生日 / 相处方式）与按人细调；
 - 互动纪念日（每日反思自动提取）、梦境；
 - 插件自带页面（陪伴小屋风格的状态 / 日程 / 日记视图；目前用宿主渲染的设置页 + 「检测」）；
-- 识屏、手机网关、米家、华为健康、直播、游戏等依赖外部设备或 AstrBot 宿主的能力。
+- 手机网关里的一起房间 / 游戏 / 人格同步 / 屏幕共享路由；高德逆地理（移植版直接用 App 上报的地点名）；
+- 识屏、米家、华为健康、直播、游戏等依赖外部设备或 AstrBot 宿主的能力。
 
 ## 开发
 
 ```bash
-node --test qq-agent/tests/                                         # 核心逻辑单测
+node --test qq-agent/tests/*.test.mjs                               # 核心逻辑与手机连接单测
 node <qq-agent-plus>/scripts/plugin-validate.mjs qq-agent/private-companion
 node <qq-agent-plus>/scripts/plugin-pack.mjs qq-agent/private-companion --out qq-agent/dist --min-version 0.9.12
 ```

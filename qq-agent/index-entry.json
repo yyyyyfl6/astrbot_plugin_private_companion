@@ -1,8 +1,8 @@
 {
   "id": "private-companion",
   "name": "我会永远陪着你（QQ Agent 移植版）",
-  "version": "0.1.0",
-  "description": "原作 menglimi 的 AstrBot 插件「我会永远陪着你」的 QQ Agent 移植版：副 API 维护角色持续进行的生活长任务（日程、心情、经历、想说的话）并挂进对话背景，按不规则间隔提示主模型主动联系；私聊按日期记日记。",
+  "version": "0.2.0",
+  "description": "原作 menglimi 的 AstrBot 插件「我会永远陪着你」的 QQ Agent 移植版：副 API 维护角色的生活长任务并挂进对话背景，按不规则间隔提示主模型主动联系；私聊按日期记日记；可连安卓陪伴终端共享手机状态。",
   "author": "menglimi（原作） · yyyyyfl6（移植）",
   "homepage": "https://github.com/yyyyyfl6/astrbot_plugin_private_companion/tree/qq-agent-port/qq-agent",
   "apiVersion": 3,
@@ -20,8 +20,10 @@
     "log",
     "llm",
     "context",
-    "wake"
+    "wake",
+    "secrets",
+    "inbound"
   ],
-  "downloadUrl": "https://raw.githubusercontent.com/yyyyyfl6/astrbot_plugin_private_companion/qq-agent-port/qq-agent/dist/private-companion-0.1.0.tar.gz",
-  "sha256": "1a74bbd54a21f9bd2a4e93c03ec3bdfa1d86c3f111b927622c93f6743905d946"
+  "downloadUrl": "https://raw.githubusercontent.com/yyyyyfl6/astrbot_plugin_private_companion/qq-agent-port/qq-agent/dist/private-companion-0.2.0.tar.gz",
+  "sha256": "c30b52ae88228e9de3e4862b7a483be7ed7cf9e3f875d3ffd9efb9b9d77627c2"
 }

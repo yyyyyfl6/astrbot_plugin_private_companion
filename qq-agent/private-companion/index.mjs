@@ -22,6 +22,8 @@ const host = {
   wake: (chatKey, note) => callHost('cap.wake.request', { chatKey, note }),
   get: async (key) => (await callHost('cap.storage.get', { key })).value,
   set: (key, value) => callHost('cap.storage.set', { key, value }),
+  // 设置里的 secret 字段（手机配对令牌），宿主加密存储
+  secret: async (key) => ((await callHost('cap.secrets.get', {})).values || {})[key] || '',
   log: (level, message) => { callHost('cap.log.write', { level, message }).catch(() => {}); }
 };
 
@@ -49,6 +51,7 @@ async function handle(m) {
         ok: s.targets.length > 0,
         summary: s.targets.length
           ? `陪伴 ${s.targets.join('、')} · ${st.today ? `此刻：${st.today.now?.text || '日程开始前'}（${st.today.mood}）` : '今天的日程还没排'}`
+            + (s.phoneEnabled ? ` · 手机：${st.phone.devices.length ? `已配对 ${st.phone.devices.join('、')}（位置 ${st.phone.location}）` : (st.phone.pairingTokenSet ? '等待配对' : '还没填配对令牌')}` : '')
           : '还没填陪伴对象',
         ...st
       };
@@ -70,6 +73,10 @@ async function handle(m) {
       }
       return { error: `未知工具 ${name}` };
     }
+    case 'inbound':
+      // 手机陪伴终端的请求（宿主 /plugin-hooks/private-companion/… 或独立端口转来）
+      await refreshSettings();
+      return companion.phone.handle(m.params || {});
     case 'observe':
       await refreshSettings();
       await companion.observe(m.params || {});

@@ -2,18 +2,35 @@
   "id": "private-companion",
   "apiVersion": 3,
   "name": "我会永远陪着你（QQ Agent 移植版）",
-  "version": "0.1.0",
-  "description": "原作 menglimi 的 AstrBot 插件「我会永远陪着你」的 QQ Agent 移植版：副 API 维护角色持续进行的生活长任务（日程、心情、经历、想说的话）并挂进对话背景，按不规则间隔提示主模型主动联系；私聊按日期记日记。",
+  "version": "0.2.0",
+  "description": "原作 menglimi 的 AstrBot 插件「我会永远陪着你」的 QQ Agent 移植版：副 API 维护角色的生活长任务并挂进对话背景，按不规则间隔提示主模型主动联系；私聊按日期记日记；可连安卓陪伴终端共享手机状态。",
   "author": "menglimi（原作） · yyyyyfl6（QQ Agent 移植）",
   "homepage": "https://github.com/yyyyyfl6/astrbot_plugin_private_companion",
   "entry": "index.mjs",
-  "engines": { "minVersion": "0.9.12" },
-  "capabilities": ["tools", "observe", "schedule", "storage", "config", "log", "llm", "context", "wake"],
+  "engines": {
+    "minVersion": "0.9.12"
+  },
+  "capabilities": [
+    "tools",
+    "observe",
+    "schedule",
+    "storage",
+    "config",
+    "log",
+    "llm",
+    "context",
+    "wake",
+    "secrets",
+    "inbound"
+  ],
   "tools": [
     {
       "name": "life_status",
       "description": "查看你自己今天的生活：今日安排、此刻在做什么、心情、今天发生过的事。对方问\"你在干嘛\"\"今天过得怎么样\"\"今天干了啥\"时用，回答要以这里为准，不要临时编。",
-      "parameters": { "type": "object", "properties": {} }
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
     },
     {
       "name": "recall_diary",
@@ -21,13 +38,24 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "date": { "type": "string", "description": "某一天，如 2026-10-20 或 10-20" },
-          "keyword": { "type": "string", "description": "关键词" }
+          "date": {
+            "type": "string",
+            "description": "某一天，如 2026-10-20 或 10-20"
+          },
+          "keyword": {
+            "type": "string",
+            "description": "关键词"
+          }
         }
       }
     }
   ],
-  "schedule": [{ "name": "tick", "everyMs": 300000 }],
+  "schedule": [
+    {
+      "name": "tick",
+      "everyMs": 300000
+    }
+  ],
   "settings": {
     "groups": [
       {
@@ -35,9 +63,27 @@
         "title": "陪伴对象",
         "description": "只陪这几个人（私聊）。最多 4 个。",
         "fields": [
-          { "key": "targets", "label": "陪伴对象 QQ（逗号分隔）", "type": "text", "required": true, "placeholder": "如 10001, 20002" },
-          { "key": "quietStart", "label": "免打扰 / 睡觉开始", "type": "text", "default": "23:30", "placeholder": "HH:MM" },
-          { "key": "quietEnd", "label": "免打扰结束（起床）", "type": "text", "default": "08:00", "placeholder": "HH:MM" }
+          {
+            "key": "targets",
+            "label": "陪伴对象 QQ（逗号分隔）",
+            "type": "text",
+            "required": true,
+            "placeholder": "如 10001, 20002"
+          },
+          {
+            "key": "quietStart",
+            "label": "免打扰 / 睡觉开始",
+            "type": "text",
+            "default": "23:30",
+            "placeholder": "HH:MM"
+          },
+          {
+            "key": "quietEnd",
+            "label": "免打扰结束（起床）",
+            "type": "text",
+            "default": "08:00",
+            "placeholder": "HH:MM"
+          }
         ]
       },
       {
@@ -45,37 +91,165 @@
         "title": "副 API（后台长任务用）",
         "description": "排日程、推进生活、写日记都用它，建议选便宜的模型。供应商 id 在 设置 → 模型 API 的供应商卡片上（custom_ 开头）。",
         "fields": [
-          { "key": "llmProvider", "label": "供应商 id", "type": "text", "help": "留空 = 自动：先找提供该模型的供应商，没有就用主模型那一家", "placeholder": "custom_xxxx" },
-          { "key": "llmModel", "label": "模型", "type": "text", "help": "留空 = 跟主模型相同（不推荐：后台任务会花主模型的钱）", "placeholder": "如 deepseek-chat" }
+          {
+            "key": "llmProvider",
+            "label": "供应商 id",
+            "type": "text",
+            "help": "留空 = 自动：先找提供该模型的供应商，没有就用主模型那一家",
+            "placeholder": "custom_xxxx"
+          },
+          {
+            "key": "llmModel",
+            "label": "模型",
+            "type": "text",
+            "help": "留空 = 跟主模型相同（不推荐：后台任务会花主模型的钱）",
+            "placeholder": "如 deepseek-chat"
+          }
         ]
       },
       {
         "key": "role",
         "title": "角色与生活",
         "fields": [
-          { "key": "roleName", "label": "角色名", "type": "text", "placeholder": "如 小鲸鱼" },
-          { "key": "roleNote", "label": "角色设定（简要，给副 API 排生活用）", "type": "text", "help": "身份、作息、爱好、所处世界。主对话的人设不受影响。", "placeholder": "如：大二学生，学美术，喜欢猫和夜跑，住学校宿舍" },
-          { "key": "lifeStepMinutes", "label": "生活推进间隔（分钟，实际会上下浮动）", "type": "number", "default": 90, "min": 30, "max": 360 }
+          {
+            "key": "roleName",
+            "label": "角色名",
+            "type": "text",
+            "placeholder": "如 小鲸鱼"
+          },
+          {
+            "key": "roleNote",
+            "label": "角色设定（简要，给副 API 排生活用）",
+            "type": "text",
+            "help": "身份、作息、爱好、所处世界。主对话的人设不受影响。",
+            "placeholder": "如：大二学生，学美术，喜欢猫和夜跑，住学校宿舍"
+          },
+          {
+            "key": "lifeStepMinutes",
+            "label": "生活推进间隔（分钟，实际会上下浮动）",
+            "type": "number",
+            "default": 90,
+            "min": 30,
+            "max": 360
+          }
         ]
       },
       {
         "key": "proactive",
         "title": "主动联系",
         "fields": [
-          { "key": "proactive", "label": "允许主动找对方", "type": "boolean", "default": true },
-          { "key": "minGapMinutes", "label": "两次主动之间最少隔（分钟）", "type": "number", "default": 120, "min": 30, "max": 1440 },
-          { "key": "maxGapMinutes", "label": "最多隔（分钟）", "type": "number", "default": 360, "min": 60, "max": 2880, "help": "每次在最少与最多之间随机取，间隔不规则" },
-          { "key": "dailyMax", "label": "每人每天最多主动几次", "type": "number", "default": 3, "min": 1, "max": 10 },
-          { "key": "waitReply", "label": "上一条没回就不再追（24 小时内）", "type": "boolean", "default": true },
-          { "key": "morning", "label": "起床后道早安", "type": "boolean", "default": true }
+          {
+            "key": "proactive",
+            "label": "允许主动找对方",
+            "type": "boolean",
+            "default": true
+          },
+          {
+            "key": "minGapMinutes",
+            "label": "两次主动之间最少隔（分钟）",
+            "type": "number",
+            "default": 120,
+            "min": 30,
+            "max": 1440
+          },
+          {
+            "key": "maxGapMinutes",
+            "label": "最多隔（分钟）",
+            "type": "number",
+            "default": 360,
+            "min": 60,
+            "max": 2880,
+            "help": "每次在最少与最多之间随机取，间隔不规则"
+          },
+          {
+            "key": "dailyMax",
+            "label": "每人每天最多主动几次",
+            "type": "number",
+            "default": 3,
+            "min": 1,
+            "max": 10
+          },
+          {
+            "key": "waitReply",
+            "label": "上一条没回就不再追（24 小时内）",
+            "type": "boolean",
+            "default": true
+          },
+          {
+            "key": "morning",
+            "label": "起床后道早安",
+            "type": "boolean",
+            "default": true
+          }
+        ]
+      },
+      {
+        "key": "phone",
+        "title": "手机连接（安卓陪伴终端）",
+        "description": "对方手机上的陪伴终端 App 把位置 / 电量 / 在用的应用 / 运动健康推过来，角色就知道 TA 此刻的状态。App 里填网关地址（见插件说明）和下面的配对令牌。数据只放内存、按时过期，不给模型坐标。",
+        "fields": [
+          {
+            "key": "phoneEnabled",
+            "label": "启用手机连接",
+            "type": "boolean",
+            "default": false
+          },
+          {
+            "key": "phonePairingToken",
+            "label": "配对令牌（≥24 位随机串，手机端填同一个）",
+            "type": "secret",
+            "help": "换令牌后已配对的手机要重新配对"
+          },
+          {
+            "key": "phoneUser",
+            "label": "绑定的 QQ（留空 = 第一个陪伴对象）",
+            "type": "text",
+            "placeholder": "10001"
+          },
+          {
+            "key": "phoneLocation",
+            "label": "共享位置（地点名 / 标签，不给坐标）",
+            "type": "boolean",
+            "default": true
+          },
+          {
+            "key": "phoneActivity",
+            "label": "共享正在用的应用（私密类自动隐藏）",
+            "type": "boolean",
+            "default": false
+          },
+          {
+            "key": "phoneHealth",
+            "label": "共享运动健康摘要",
+            "type": "boolean",
+            "default": false
+          },
+          {
+            "key": "phoneEvents",
+            "label": "到了新地方 / 电量很低时主动关心",
+            "type": "boolean",
+            "default": true
+          }
         ]
       },
       {
         "key": "diary",
         "title": "私聊日记",
         "fields": [
-          { "key": "diaryEnabled", "label": "按日期记私聊日记", "type": "boolean", "default": true },
-          { "key": "diaryDays", "label": "最近几天的日记进背景", "type": "number", "default": 3, "min": 0, "max": 7 }
+          {
+            "key": "diaryEnabled",
+            "label": "按日期记私聊日记",
+            "type": "boolean",
+            "default": true
+          },
+          {
+            "key": "diaryDays",
+            "label": "最近几天的日记进背景",
+            "type": "number",
+            "default": 3,
+            "min": 0,
+            "max": 7
+          }
         ]
       }
     ]
