@@ -20,6 +20,7 @@ export async function pageCall(c, method, params = {}) {
         chats: st.chats,
         phone: st.phone,
         upcoming: (await c.rel.upcoming(s.targets, today, 30)).slice(0, 8),
+        handoffs: (await Promise.all(s.targets.map(async (uin) => ({ uin, h: await c.handoff.get(uin) })))).filter((x) => x.h),
         lastTick: st.lastTick
       };
     }

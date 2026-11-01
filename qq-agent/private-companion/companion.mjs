@@ -19,6 +19,7 @@ import { Phone } from './phone.mjs';
 import { Relations } from './relations.mjs';
 import { Expressions } from './expressions.mjs';
 import { Growth } from './growth.mjs';
+import { Handoff } from './handoff.mjs';
 
 const HOUR = 3600_000;
 const DAY = 24 * HOUR;
@@ -66,7 +67,9 @@ export function readSettings(raw = {}) {
     phoneEvents: s.phoneEvents !== false,
     // 表达学习（默认关：会读群聊里别人的话）与成长记录
     exprEnabled: s.exprEnabled === true,
-    growthEnabled: s.growthEnabled !== false
+    growthEnabled: s.growthEnabled !== false,
+    // 人格交接：多人格切换时把陪伴这一侧的记录交给新人格（与宿主的交接摘要配合）
+    handoffEnabled: s.handoffEnabled !== false
   };
 }
 
@@ -109,6 +112,7 @@ export class Companion {
     this.groupSaid = new Map();     // uin -> [{ group, text, ts }]：陪伴对象刚在群里说的话（跨窗口承接，只放内存）
     this.expr = new Expressions({ host, now });
     this.growth = new Growth({ host, now });
+    this.handoff = new Handoff({ host, now });
     this.personaCache = new Map();  // uin -> { at, persona }
     this.phone = new Phone({
       host, now, settings: () => this.settings,
@@ -125,6 +129,7 @@ export class Companion {
   async refreshContext(uin) {
     if (!this.settings.targets.includes(uin)) return;
     const persona = await this.personaOf(uin);
+    await this.checkSwitch(uin, persona);
     const life = await this.life(undefined, persona.pk);
     const book = await this.diary(uin);
     await this.host.setContext(`private:${uin}`, this.contextText(life, book, uin, await this.extras(uin, persona)), 30);
@@ -134,9 +139,9 @@ export class Companion {
    * 这个陪伴对象的私聊**当前正在运行的人格**（多人格切换后跟着变）。读不到（老宿主 / 单测）时回落到插件设置。
    * 返回 { pk 存储用的人格键, name, roleText, skinId }；1 分钟缓存。
    */
-  async personaOf(uin) {
+  async personaOf(uin, { fresh = false } = {}) {
     const hit = this.personaCache.get(uin);
-    if (hit && this.now() - hit.at < 60_000) return hit.persona;
+    if (!fresh && hit && this.now() - hit.at < 60_000) return hit.persona;
     let p = null;
     try { p = this.host.persona ? await this.host.persona(`private:${uin}`) : null; } catch { p = null; }
     const persona = {
@@ -149,6 +154,39 @@ export class Companion {
     return persona;
   }
 
+  /**
+   * 人格切换检测（多人格 /切换 之后）：这个人的私聊上次记下的人格 ≠ 现在的 → 生成陪伴交接。
+   * 切换了返回 { from, to, handoff }（交接关掉时 handoff 为 null），没切换返回 null。第一次见到只记下人格、不算切换。
+   */
+  async checkSwitch(uin, persona) {
+    const c = await this.chat(uin);
+    if (!c.pk) {
+      c.pk = persona.pk; c.pname = persona.name;
+      await this.saveChat(uin, c);
+      return null;
+    }
+    if (c.pk === persona.pk) {
+      if (c.pname !== persona.name) { c.pname = persona.name; await this.saveChat(uin, c); }
+      return null;
+    }
+    const from = { pk: c.pk, name: c.pname || c.pk };
+    const now = this.now();
+    let h = null;
+    if (this.settings.handoffEnabled) {
+      const oldLife = await this.life(undefined, from.pk);
+      h = this.handoff.build({ from, to: persona, oldLife, current: oldLife ? this.current(oldLife) : null, chat: c, today: bjDate(now), at: now, hm: bjHm(now) });
+      await this.handoff.save(uin, h);
+      await this.#log({ uin, kind: 'handoff', note: `人格从【${from.name}】换成【${persona.name}】，陪伴记录已交接（${h.lines.length} 条）` });
+    } else {
+      await this.host.set(this.handoff.key(uin), null);
+    }
+    // 新人格先自然接上话：下一次主动至少往后推 40~90 分钟（每日上限按人算，切人格不重置）
+    c.nextAt = Math.max(c.nextAt || 0, now + this.#jitter(40, 90));
+    c.pk = persona.pk; c.pname = persona.name;
+    await this.saveChat(uin, c);
+    return { from, to: persona, handoff: h };
+  }
+
   /** 背景里除生活 / 日记 / 手机之外的部分：熟人卡、今天的日子、梦、刚在群里说的话。 */
   async extras(uin, persona = null) {
     const now = this.now();
@@ -159,7 +197,8 @@ export class Companion {
     const said = (this.groupSaid.get(uin) || []).filter((x) => now - x.ts < 30 * 60_000);
     const growth = this.growth.summary(await this.growth.get(pk));
     const exprRules = this.settings.exprEnabled ? (await this.expr.state()).rules : [];
-    return { card, dates, dream, said, growth, exprRules };
+    const handoff = this.settings.handoffEnabled ? this.handoff.contextText(await this.handoff.get(uin), persona) : '';
+    return { card, dates, dream, said, growth, exprRules, handoff, pk };
   }
 
   async #log(entry) {
@@ -277,6 +316,9 @@ export class Companion {
     // 对方刚在聊：把下一次主动往后推，别在聊天中间插一句"在吗"
     if (c.nextAt && c.nextAt - ts < 30 * 60_000) c.nextAt = ts + this.#jitter(40, 90);
     await this.saveChat(m[1], c);
+    // 刚切过人格（/切换 之后的第一句）：立刻交接、换上新人格的背景，不等 5 分钟巡检
+    const persona = await this.personaOf(m[1], { fresh: true });
+    if (await this.checkSwitch(m[1], persona)) await this.refreshContext(m[1]);
   }
 
   /** 把某一天（默认昨天）对方说过的话写成日记。 */
@@ -293,7 +335,8 @@ export class Companion {
     const summary = str(j?.summary || r, 200);
     if (!summary) return null;
     const book = await this.diary(uin);
-    book[date] = { summary, followups: (Array.isArray(j?.followups) ? j.followups : []).map((x) => str(x, 60)).filter(Boolean).slice(0, 2), n: lines.length };
+    const by = await this.personaOf(uin);
+    book[date] = { by: by.name, pk: by.pk, summary, followups: (Array.isArray(j?.followups) ? j.followups : []).map((x) => str(x, 60)).filter(Boolean).slice(0, 2), n: lines.length };
     for (const d of Object.keys(book).sort().slice(0, -MAX_DIARY_DAYS)) delete book[d];
     await this.host.set(`diary:${uin}`, book);
     // 每日反思的另外两样产物：熟人卡印象、互动纪念日（日期就是这句话真实发生的那天）
@@ -326,7 +369,7 @@ export class Companion {
     const s = this.settings;
     const parts = [];
     const phoneText = uin ? this.phone.contextText(uin) : '';
-    const { card = null, dates = [], dream = null, said = [], growth = '', exprRules = [] } = extras || {};
+    const { card = null, dates = [], dream = null, said = [], growth = '', exprRules = [], handoff = '', pk = '' } = extras || {};
     if (life) {
       const cur = this.current(life);
       const pending = life.thoughts.filter((t) => !t.used).slice(-1)[0];
@@ -339,6 +382,7 @@ export class Companion {
         '这些是你的生活背景：对方问起或聊到相关话题时自然带出，不要每句都提，也不要和这里矛盾。'
       ].filter(Boolean).join('\n'));
     }
+    if (handoff) parts.push(handoff);
     if (dates.length) parts.push(`【今天是特别的日子】${dates.map((d) => d.label + (d.year ? `（${new Date(this.now() + 8 * HOUR).getUTCFullYear() - d.year} 周年）` : '')).join('、')}。`);
     if (phoneText) parts.push(phoneText);
     const cardText = this.rel.cardText(card);
@@ -353,7 +397,7 @@ export class Companion {
       const days = Object.keys(book).filter((d) => d < today).sort().reverse().slice(0, s.diaryDays);
       if (days.length) {
         parts.push('【私聊日记·最近几天（你记的；更早的可以用 recall_diary 翻）】\n'
-          + days.map((d) => `${d.slice(5)}：${book[d].summary}${book[d].followups?.length ? `（待跟进：${book[d].followups.join('；')}）` : ''}`).join('\n'));
+          + days.map((d) => `${d.slice(5)}${book[d].pk && pk && book[d].pk !== pk ? `（那天是【${book[d].by}】陪着 TA，转述）` : ''}：${book[d].summary}${book[d].followups?.length ? `（待跟进：${book[d].followups.join('；')}）` : ''}`).join('\n'));
       }
     }
     return parts.join('\n\n').slice(0, 1450);
@@ -477,6 +521,7 @@ export class Companion {
         const chatKey = `private:${uin}`;
         const persona = personaOfUin.get(uin);
         const life = lives.get(persona.pk) || null;
+        await this.checkSwitch(uin, persona);
         let c = await this.chat(uin);
         // 日记：凌晨 3 点后把昨天定稿
         let book = await this.diary(uin);

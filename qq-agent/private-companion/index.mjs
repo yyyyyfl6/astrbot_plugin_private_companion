@@ -46,19 +46,9 @@ async function handle(m) {
     case 'schedule':
       await refreshSettings();
       return { report: await companion.tick() };
-    case 'probe': {
-      await refreshSettings();
-      const st = await companion.status();
-      const s = companion.settings;
-      return {
-        ok: s.targets.length > 0,
-        summary: s.targets.length
-          ? `陪伴 ${s.targets.join('、')} · ${st.today ? `此刻：${st.today.now?.text || '日程开始前'}（${st.today.mood}）` : '今天的日程还没排'}`
-            + (s.phoneEnabled ? ` · 手机：${st.phone.devices.length ? `已配对 ${st.phone.devices.join('、')}（位置 ${st.phone.location}）` : (st.phone.pairingTokenSet ? '等待配对' : '还没填配对令牌')}` : '')
-          : '还没填陪伴对象',
-        ...st
-      };
-    }
+    // 不实现 probe：宿主的「检测登录」徽标是给账号类插件的；状态在「陪伴小屋」里看
+    case 'probe':
+      throw Object.assign(new Error('method not implemented: probe'), { code: 'E_METHOD' });
     case 'callTool': {
       const { name, args = {}, context = {} } = m.params || {};
       await refreshSettings();
