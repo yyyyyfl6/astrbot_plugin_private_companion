@@ -6,7 +6,7 @@
 //   GET  /health                 免鉴权的存活检查
 //   POST /pair                   配对令牌 → 会话令牌（7 天）
 //   GET  /status  /snapshot      当前快照
-//   GET  /persona  POST /persona  手机上对角色的称呼（≤12 字；不设就用当前人格的名字）
+//   GET  /persona  POST /persona  手机上对角色的称呼（≤12 字，按人格分开存；不设就用当前人格的名字）
 //   POST /location  /location/heartbeat  /location/revoke
 //   POST /device/status  /device/activity  /telemetry
 //   POST /room/create  /room/invite  /room/join  /room/prepare  /game/room/create   一起房间与游戏（rooms.mjs）
@@ -63,10 +63,10 @@ export class Phone {
    * host：{ get, set, secret(key) }；settings()：当前插件设置（readSettings 之后）；
    * onUpdate(uin, { kind, event })：有新数据时回调（刷新背景 / 产生主动由头）
    */
-  constructor({ host, settings, rooms = null, personaName = async () => '', onUpdate = () => {}, now = () => Date.now(), log = () => {} } = {}) {
+  constructor({ host, settings, rooms = null, personaOf = async () => ({ pk: 'default', name: '' }), onUpdate = () => {}, now = () => Date.now(), log = () => {} } = {}) {
     this.host = host;
     this.rooms = rooms;
-    this.personaName = personaName;
+    this.personaOf = personaOf;
     this.settingsOf = settings;
     this.onUpdate = onUpdate;
     this.now = now;
@@ -144,7 +144,7 @@ export class Phone {
       case 'POST /persona': {
         const name = body.bot_name;
         if (typeof name !== 'string' || !name.trim() || name.trim().length > 12 || /[\r\n\0]/.test(name)) return err('称呼应为 1 到 12 个字符');
-        await this.host.set(`phone:alias:${uin}`, name.trim());
+        await this.host.set((await this.#aliasKey(uin)).key, name.trim());
         return { status: 200, body: { ok: true, bot_name: name.trim(), source: 'mobile_alias' } };
       }
       case 'POST /room/create': return this.#createRoom(request, uin, body, 'together');
@@ -197,11 +197,18 @@ export class Phone {
 
   // ── 人格称呼 ──
 
+  // 称呼按人格分开存（多人格时 App 里给"鱼"起的昵称不会落到"猫"头上）；默认人格沿用不带人格键的老键
+  async #aliasKey(uin) {
+    const p = await this.personaOf(uin).catch(() => null);
+    const pk = p?.pk || 'default';
+    return { key: pk === 'default' ? `phone:alias:${uin}` : `phone:alias:${uin}:${pk}`, name: p?.name || '' };
+  }
+
   async #persona(uin) {
-    const alias = clean(await this.host.get(`phone:alias:${uin}`), 12);
+    const { key, name } = await this.#aliasKey(uin);
+    const alias = clean(await this.host.get(key), 12);
     if (alias) return { bot_name: alias, source: 'mobile_alias' };
-    const name = clean(await this.personaName(uin).catch(() => ''), 12);
-    return name ? { bot_name: name, source: 'qq_agent_persona' } : { bot_name: '', source: 'unavailable' };
+    return name ? { bot_name: clean(name, 12), source: 'qq_agent_persona' } : { bot_name: '', source: 'unavailable' };
   }
 
   // ── 一起房间与游戏（rooms.mjs） ──

@@ -57,7 +57,7 @@ export function roomPage() {
 
 export class Rooms {
   /**
-   * host：{ llm(messages, opts) }；profile(uin) → { name, role, life }（角色名、给副 API 的人设、此刻的生活）；
+   * host：{ llm(messages, opts) }；profile(uin) → { pk, name, role, life }（当前人格键、角色名、给副 API 的人设、此刻的生活）；
    * onEnd(uin, text)：房间结束时的一句话；settings()：插件设置
    */
   constructor({ host, settings, profile, onEnd = () => {}, now = () => Date.now(), random = Math.random, log = () => {} } = {}) {
@@ -133,7 +133,7 @@ export class Rooms {
     this.#push(room, 'system', note || '房间结束了。');
     const summary = this.summary(room);
     if (summary) {
-      try { this.onEnd(room.uin, summary); } catch (error) { this.log('warn', `房间收尾出错：${error?.message ?? error}`); }
+      Promise.resolve().then(() => this.onEnd(room.uin, summary)).catch((error) => this.log('warn', `房间收尾出错：${error?.message ?? error}`));
     }
   }
 
@@ -268,8 +268,8 @@ export class Rooms {
 
   // ── 后台（副 API） ──
 
-  #push(room, from, text) {
-    room.messages.push({ from, text: clean(text, 400), at: Math.floor(this.now() / 1000) });
+  #push(room, from, text, meta = {}) {
+    room.messages.push({ from, text: clean(text, 400), at: Math.floor(this.now() / 1000), ...meta });
     if (room.messages.length > MAX_MESSAGES) room.messages.splice(0, room.messages.length - MAX_MESSAGES);
     room.rev += 1;
   }
@@ -295,8 +295,18 @@ export class Rooms {
 
   async idle() { while (this.jobs.size) await Promise.all([...this.jobs]); }
 
-  async #system(room, extra = '') {
+  /** 当前陪着的人格；房间开着时切了人格（多人格 /切换），房间里说一声。 */
+  async #persona(room) {
     const p = await this.profile(room.uin);
+    const pk = p.pk || 'default';
+    if (room.pk && room.pk !== pk && !room.ended) this.#push(room, 'system', `换成「${p.name || '另一位'}」陪你了`);
+    room.pk = pk;
+    room.pname = p.name || '';
+    return p;
+  }
+
+  async #system(room, extra = '') {
+    const p = await this.#persona(room);
     const scene = room.kind === 'game'
       ? `你们正在玩${room.label}（${describe(room.type, room.state || {})}）。`
       : `你们正在「${room.label}」${room.topic ? `：${room.topic}` : ''}。`;
@@ -306,8 +316,11 @@ export class Rooms {
   }
 
   #history(room) {
+    // 别的人格在这个房间里说过的话：不当成"我说的"，标成转述（与宿主的人格交接同口径）
     return room.messages.filter((m) => m.from !== 'system').slice(-12)
-      .map((m) => ({ role: m.from === 'bot' ? 'assistant' : 'user', content: m.text }));
+      .map((m) => (m.from !== 'bot' ? { role: 'user', content: m.text }
+        : (!m.pk || m.pk === room.pk) ? { role: 'assistant', content: m.text }
+          : { role: 'user', content: `（之前陪 TA 的「${m.by || '另一位'}」说过，转述，不是你说的）${m.text}` }));
   }
 
   async #reply(room, { cue = '', image = '' } = {}) {
@@ -319,11 +332,11 @@ export class Rooms {
     }
     if (messages.length === 1) messages.push({ role: 'user', content: '（提示）打个招呼。' });
     const text = clean(await this.host.llm(messages, { maxTokens: 200, temperature: 0.9 }), 160).replace(/^["“「]|["”」]$/g, '');
-    if (!room.ended && text) this.#push(room, 'bot', text);
+    if (!room.ended && text) this.#push(room, 'bot', text, { pk: room.pk, by: room.pname });
   }
 
   async #soupInit(room) {
-    const p = await this.profile(room.uin);
+    const p = await this.#persona(room);
     const raw = await this.host.llm([
       { role: 'system', content: '你在出一道"海龟汤"（情境推理谜题）：汤面是一段离奇但合理的短情节，汤底是完整真相；不要血腥恐怖，适合聊天时玩，答案要能靠"是/不是"的提问推出来。只输出 JSON：{"title":"≤10字","surface":"汤面，≤120字","bottom":"汤底，≤200字"}' },
       { role: 'user', content: `出题人是 ${p.name || '角色'}，换个新题，别出最常见的那几道。` }
@@ -333,7 +346,7 @@ export class Rooms {
     if (!surface || !bottom) throw new Error('副 API 没出好题');
     room.state = { ...room.state, title, surface, bottom, ready: true };
     room.rev += 1;
-    this.#push(room, 'bot', `汤面「${title || '无题'}」：${surface}\n你可以问我只能用"是 / 不是"回答的问题～`);
+    this.#push(room, 'bot', `汤面「${title || '无题'}」：${surface}\n你可以问我只能用"是 / 不是"回答的问题～`, { pk: room.pk, by: room.pname });
   }
 
   async #soupAsk(room, question) {
@@ -351,7 +364,7 @@ export class Rooms {
     const solved = answer === '猜对了';
     room.state = { ...st, qa, over: solved || st.over, winner: solved ? 'user' : st.winner };
     room.rev += 1;
-    this.#push(room, 'bot', `${answer}${j?.comment ? `。${clean(j.comment, 30)}` : ''}`);
+    this.#push(room, 'bot', `${answer}${j?.comment ? `。${clean(j.comment, 30)}` : ''}`, { pk: room.pk, by: room.pname });
     if (solved) this.#push(room, 'system', `汤底：${st.bottom}`);
   }
 
@@ -367,7 +380,7 @@ export class Rooms {
     const next = applyGuess(st, guess);
     room.state = next;
     room.rev += 1;
-    this.#push(room, 'bot', `${j?.say ? `${clean(j.say, 40)} ` : ''}是「${guess}」吗？`);
+    this.#push(room, 'bot', `${j?.say ? `${clean(j.say, 40)} ` : ''}是「${guess}」吗？`, { pk: room.pk, by: room.pname });
     if (next.roundOver) this.#push(room, 'system', next.guesses.at(-1).right ? `猜中了！答案就是「${st.word}」` : `三次都没猜中，答案是「${st.word}」`);
   }
 }

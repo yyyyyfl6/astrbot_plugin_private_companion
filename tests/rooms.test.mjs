@@ -241,3 +241,38 @@ test('屏幕共享：心跳与帧要开关；有一起工作房间就进房间�
   assert.equal((await req('GET', '/persona', {}, s)).body.source, 'mobile_alias');
   assert.equal((await req('POST', '/persona', { bot_name: 'x'.repeat(13) }, s)).status, 400);
 });
+
+test('多人格：房间里切人格 → 提示换人、旧人格的话标转述；称呼按人格分开；房间记忆对新人格是转述', async () => {
+  const { c, req, calls } = setup();
+  let persona = { skinId: 'fish', label: '蓝色大肥鱼', botName: '蓝色大肥鱼', roleText: '鱼' };
+  c.host.persona = async () => persona;
+  const s = await pair(req);
+  // 称呼按人格分开
+  await req('POST', '/persona', { bot_name: '鱼鱼' }, s);
+  assert.equal((await req('GET', '/persona', {}, s)).body.bot_name, '鱼鱼');
+  const r = await req('POST', '/room/create', { mode: 'watch' }, s);
+  const t = tokenOf(r.body.data.url);
+  await c.rooms.idle();
+  await req('POST', `/api/room/${t}/action`, { action: 'say', text: '在吗' });
+  await c.rooms.idle();
+  // 切到哈基米（1 分钟的人格缓存过了之后）
+  persona = { skinId: 'cat', label: '哈基米', botName: '哈基米', roleText: '猫' };
+  c.personaCache.clear();
+  assert.equal((await req('GET', '/persona', {}, s)).body.bot_name, '哈基米', '猫没起过昵称：用人格名，不用鱼的昵称');
+  await req('POST', `/api/room/${t}/action`, { action: 'say', text: '你是谁' });
+  await c.rooms.idle();
+  const v = (await req('GET', `/api/room/${t}/state`)).body.data;
+  assert.ok(v.messages.some((m) => m.from === 'system' && m.text.includes('换成「哈基米」')));
+  const last = calls.llm.at(-1).messages;
+  assert.match(last[0].content, /你是「哈基米」/);
+  assert.ok(last.some((m) => m.role === 'user' && /之前陪 TA 的「蓝色大肥鱼」说过，转述/.test(m.content)), '鱼说过的话对猫是转述');
+  assert.ok(!last.some((m) => m.role === 'assistant' && m.content === '好呀～' && last.indexOf(m) < 3), '鱼的话不当成猫自己说的');
+  // 房间里收尾时陪着的是猫；切回鱼后看到的是转述
+  await req('POST', `/api/room/${t}/action`, { action: 'leave' });
+  await new Promise((r2) => setTimeout(r2, 20));
+  persona = { skinId: 'fish', label: '蓝色大肥鱼', botName: '蓝色大肥鱼', roleText: '鱼' };
+  c.personaCache.clear();
+  await c.refreshContext('10001');
+  const ctx = calls.ctx.filter((x) => x.k === 'private:10001').at(-1).t;
+  assert.match(ctx, /那是【哈基米】陪 TA 的，转述/);
+});

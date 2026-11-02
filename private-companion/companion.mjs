@@ -129,17 +129,19 @@ export class Companion {
         const p = await this.personaOf(uin);
         const life = await this.life(undefined, p.pk);
         const cur = life ? this.current(life) : null;
-        return { name: p.name || this.settings.roleName, role: roleLine(this.settings, p), life: life ? `${cur ? `${cur.text}，` : ''}心情${life.mood}` : '' };
+        return { pk: p.pk, name: p.name || this.settings.roleName, role: roleLine(this.settings, p), life: life ? `${cur ? `${cur.text}，` : ''}心情${life.mood}` : '' };
       },
-      onEnd: (uin, text) => {
-        this.roomNotes.set(uin, [...(this.roomNotes.get(uin) || []), { at: this.now(), text }].slice(-4));
+      onEnd: async (uin, text) => {
+        // 记下是哪个人格陪的：之后切了人格，新人格看到的是转述
+        const p = await this.personaOf(uin).catch(() => ({ pk: 'default', name: '' }));
+        this.roomNotes.set(uin, [...(this.roomNotes.get(uin) || []), { at: this.now(), text, pk: p.pk, by: p.name }].slice(-4));
         this.#appendLife(uin, text).catch(() => {});
         this.refreshContext(uin).catch(() => {});
       }
     });
     this.phone = new Phone({
       host, now, settings: () => this.settings, rooms: this.rooms,
-      personaName: async (uin) => (await this.personaOf(uin)).name,
+      personaOf: (uin) => this.personaOf(uin),
       log: (level, msg) => host.log?.(level, msg),
       onUpdate: (uin, info) => {
         if (info?.event && this.settings.phoneEvents) this.phoneEvents.set(uin, info.event);
@@ -420,7 +422,9 @@ export class Companion {
     if (handoff) parts.push(handoff);
     if (dates.length) parts.push(`【今天是特别的日子】${dates.map((d) => d.label + (d.year ? `（${new Date(this.now() + 8 * HOUR).getUTCFullYear() - d.year} 周年）` : '')).join('、')}。`);
     if (phoneText) parts.push(phoneText);
-    if (rooms.length) parts.push(`【你们刚在手机上一起做的事（你亲历的）】\n${rooms.map((x) => `${bjHm(x.at)} ${x.text}`).join('\n')}`);
+    if (rooms.length) {
+      parts.push(`【你们刚在手机上一起做的事】\n${rooms.map((x) => `${bjHm(x.at)} ${x.text}${x.pk && pk && x.pk !== pk ? `（那是【${x.by || '另一位'}】陪 TA 的，转述，不是你亲历的）` : ''}`).join('\n')}`);
+    }
     const cardText = this.rel.cardText(card);
     if (cardText) parts.push(cardText);
     if (said.length) parts.push(`【TA 刚在群里说过（只是 TA 本人的话，可以自然承接，别提群里其他人）】\n${said.slice(-3).map((x) => `${bjHm(x.ts)} ${x.text}`).join('\n')}`);
