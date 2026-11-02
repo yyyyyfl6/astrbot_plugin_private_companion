@@ -1,0 +1,241 @@
+<!doctype html>
+<!-- 一起房间 / 陪伴游戏：我会永远陪着你（原作 menglimi）的 QQ Agent 移植版。
+     由插件经宿主 inbound 在独立端口上提供（宿主加 CSP：只许连回同一端口）；链接里的令牌就是凭证。
+     接口：GET ../api/room/<令牌>/state、POST ../api/room/<令牌>/action（见 rooms.mjs）。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>陪伴房间</title>
+<style>
+  :root { --bg:#f5f6fa; --card:#fff; --text:#1c2333; --muted:#677084; --border:#e2e6ee; --accent:#4c8dff; --accent-fg:#fff; --bot:#eef3ff; --me:#4c8dff; --me-fg:#fff; --sys:#8a93a5; --good:#2f9e6b; --bad:#e5484d; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14161c; --card:#1d2029; --text:#e8ebf2; --muted:#9aa3b5; --border:#2c303b; --bot:#262b38; --me:#3d74d6; --sys:#7d8597; } }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  body { display: flex; flex-direction: column; max-width: 720px; margin: 0 auto; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--card); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2; }
+  header h1 { font-size: 16px; margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+  button { font: inherit; border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: 999px; padding: 7px 14px; cursor: pointer; }
+  button.pri { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+  button:disabled { opacity: .5; }
+  input, textarea { font: inherit; width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text); }
+  textarea { resize: vertical; min-height: 70px; }
+  main { flex: 1; overflow-y: auto; padding: 12px 16px 4px; display: flex; flex-direction: column; gap: 12px; }
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 12px; }
+  .panel h2 { font-size: 14px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row > input { flex: 1; min-width: 140px; }
+  .msgs { display: flex; flex-direction: column; gap: 6px; }
+  .m { max-width: 82%; padding: 8px 12px; border-radius: 16px; white-space: pre-wrap; word-break: break-word; }
+  .m.bot { background: var(--bot); align-self: flex-start; border-bottom-left-radius: 4px; }
+  .m.user { background: var(--me); color: var(--me-fg); align-self: flex-end; border-bottom-right-radius: 4px; }
+  .m.system { align-self: center; color: var(--sys); font-size: 13px; text-align: center; max-width: 95%; }
+  .typing { color: var(--sys); font-size: 13px; align-self: flex-start; }
+  footer { display: flex; gap: 8px; padding: 10px 16px; background: var(--card); border-top: 1px solid var(--border); }
+  footer input { flex: 1; }
+  .board3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; width: min(280px, 100%); margin: 0 auto; }
+  .board3 button { aspect-ratio: 1; border-radius: 12px; font-size: 34px; padding: 0; }
+  .gomoku { display: grid; width: min(100%, 420px); aspect-ratio: 1; margin: 0 auto; background: #e3b873; border-radius: 8px; padding: 4px; gap: 0; }
+  .gomoku div { position: relative; cursor: pointer; }
+  .gomoku div::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid rgba(60,40,10,.45); }
+  .gomoku div::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; border-left: 1px solid rgba(60,40,10,.45); }
+  .gomoku i { position: absolute; inset: 8%; border-radius: 50%; z-index: 1; }
+  .gomoku i.B { background: radial-gradient(circle at 35% 35%, #555, #111); }
+  .gomoku i.W { background: radial-gradient(circle at 35% 35%, #fff, #cfcfcf); }
+  .gomoku i.last { box-shadow: 0 0 0 2px var(--bad); }
+  .score { display: flex; justify-content: space-around; text-align: center; font-size: 13px; color: var(--muted); }
+  .score b { display: block; font-size: 24px; color: var(--text); }
+  .cards { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 8px; }
+  .card { min-width: 42px; padding: 8px 6px; border: 1px solid var(--border); border-radius: 8px; text-align: center; font-size: 18px; background: #fff; color: #222; }
+  .card.red { color: #d33; }
+  .dice { font-size: 26px; letter-spacing: 4px; min-height: 36px; }
+  canvas { display: block; width: min(100%, 360px); aspect-ratio: 1; margin: 0 auto; background: #fff; border-radius: 12px; border: 1px solid var(--border); touch-action: none; }
+  .hint { color: var(--muted); font-size: 13px; }
+  .ended { text-align: center; color: var(--muted); padding: 24px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">陪伴房间</h1>
+  <button id="leave">离开</button>
+</header>
+<main id="main">
+  <div id="stage"></div>
+  <div class="msgs" id="msgs"></div>
+  <div class="typing hidden" id="typing">TA 正在输入…</div>
+</main>
+<footer id="foot">
+  <input id="say" maxlength="300" placeholder="说点什么…" autocomplete="off">
+  <button class="pri" id="send">发送</button>
+</footer>
+<script>
+(() => {
+  const token = location.pathname.split('/').filter(Boolean).pop();
+  const api = (op) => new URL(`../api/room/${token}/${op}`, location.href).toString();
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  let view = null; let rev = -1; let timer = 0; let busy = false; let built = '';
+
+  async function post(body) {
+    if (busy) return;
+    busy = true;
+    try {
+      const r = await fetch(api('action'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const j = await r.json().catch(() => ({}));
+      if (!j.ok) toast(j.message || '没成功');
+    } catch { toast('网络不太好'); }
+    busy = false;
+    poll(true);
+  }
+  function toast(text) {
+    const d = document.createElement('div');
+    d.className = 'm system'; d.textContent = text;
+    $('msgs').appendChild(d); scrollDown();
+  }
+  const scrollDown = () => { const m = $('main'); m.scrollTop = m.scrollHeight; };
+
+  async function poll(now = false) {
+    clearTimeout(timer);
+    try {
+      const r = await fetch(api('state'), { cache: 'no-store' });
+      const j = await r.json();
+      if (!j.ok) { ended(j.message || '房间已经结束了'); return; }
+      if (j.data.rev !== rev) { view = j.data; rev = view.rev; render(); }
+      if (view.ended) return;
+    } catch { /* 下次再试 */ }
+    timer = setTimeout(poll, view && view.pending ? 1500 : (document.hidden ? 10000 : 4000));
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(true); });
+
+  function ended(text) {
+    $('stage').innerHTML = `<div class="ended">${esc(text)}<br><br>可以关掉这一页了。</div>`;
+    $('foot').classList.add('hidden'); $('leave').classList.add('hidden'); $('typing').classList.add('hidden');
+  }
+
+  function render() {
+    const v = view;
+    document.title = `${v.label} · ${v.bot_name || '陪伴'}`;
+    $('title').innerHTML = `${esc(v.label)}<small>${esc(v.bot_name ? `和 ${v.bot_name}` : '')}${v.topic ? ` · ${esc(v.topic)}` : ''}</small>`;
+    const msgs = v.messages.map((m) => `<div class="m ${m.from}">${esc(m.text)}</div>`).join('');
+    const atBottom = $('main').scrollHeight - $('main').scrollTop - $('main').clientHeight < 80;
+    $('msgs').innerHTML = msgs;
+    $('typing').classList.toggle('hidden', !v.pending);
+    if (v.type === 'turtle_soup') $('say').placeholder = '问一个"是 / 不是"能回答的问题，或者直接猜…';
+    renderStage(v);
+    if (v.ended) { ended(v.end_note || '房间已经结束了'); }
+    if (atBottom) scrollDown();
+  }
+
+  // ── 各房间的操作区 ──
+
+  function renderStage(v) {
+    const s = v.state;
+    const st = $('stage');
+    const key = v.type;
+    if (v.kind === 'together') {
+      if (built !== key) {
+        built = key;
+        const what = { watch: '在看什么（片名 / 视频标题）', novel: '在读什么（书名）', work: '在忙什么（可空）' }[v.type];
+        st.innerHTML = `<div class="panel"><h2>${esc(v.label)}</h2>
+          <div class="row"><input id="topic" maxlength="60" placeholder="${what}"><button id="setTopic">好了</button></div>
+          ${v.type === 'novel' ? '<div style="margin-top:8px"><textarea id="passage" maxlength="1500" placeholder="贴一段正在读的文字，TA 读完说说感受"></textarea><div class="row" style="margin-top:6px"><button id="sendPassage">给 TA 看这段</button></div></div>' : ''}
+          ${v.type !== 'novel' ? `<div class="row" style="margin-top:8px"><button id="pick">${v.type === 'work' ? '共享一张截图' : '分享一帧画面'}</button><span class="hint" id="visionHint"></span></div><input type="file" id="file" accept="image/*" class="hidden">` : ''}
+        </div>`;
+        $('setTopic').onclick = () => { const t = $('topic').value.trim(); if (t) post({ action: 'topic', title: t }); };
+        if ($('sendPassage')) $('sendPassage').onclick = () => { const t = $('passage').value.trim(); if (t) { post({ action: 'passage', text: t }); $('passage').value = ''; } };
+        if ($('pick')) {
+          $('pick').onclick = () => $('file').click();
+          $('file').onchange = async () => { const f = $('file').files[0]; $('file').value = ''; if (f) post({ action: 'frame', image: await shrink(f) }); };
+        }
+      }
+      if ($('visionHint')) $('visionHint').textContent = v.vision ? (v.type === 'work' ? '手机 App 开着屏幕共享时会自动进来' : '') : '（插件设置里没打开「让角色看图」）';
+      if ($('pick')) $('pick').disabled = !v.vision;
+      return;
+    }
+    if (key === 'tictactoe') {
+      st.innerHTML = `<div class="panel"><h2>你是 ✕，TA 是 ○</h2><div class="board3">${s.board.map((c, i) => `<button data-i="${i}" ${c || s.over ? 'disabled' : ''}>${c === 'X' ? '✕' : c === 'O' ? '○' : ''}</button>`).join('')}</div>${again(s)}</div>`;
+      st.querySelectorAll('.board3 button').forEach((b) => { b.onclick = () => post({ cell: Number(b.dataset.i) }); });
+    } else if (key === 'gomoku') {
+      st.innerHTML = `<div class="panel"><h2>你执黑先手，连成五子获胜</h2><div class="gomoku" style="grid-template-columns:repeat(${s.size},1fr)">${s.board.map((c, i) => `<div data-i="${i}">${c ? `<i class="${c}${i === s.last ? ' last' : ''}"></i>` : ''}</div>`).join('')}</div>${again(s)}</div>`;
+      if (!s.over) st.querySelectorAll('.gomoku div').forEach((d) => { if (!d.firstChild) d.onclick = () => post({ cell: Number(d.dataset.i) }); });
+    } else if (key === 'pig_dice') {
+      const face = (n) => '⚀⚁⚂⚃⚄⚅'[n - 1] || '';
+      st.innerHTML = `<div class="panel"><h2>先到 ${s.target} 分赢；掷到 1 本回合清零</h2>
+        <div class="score"><div>你<b>${s.scores.user}</b></div><div>本回合<b>${s.turn}</b></div><div>TA<b>${s.scores.bot}</b></div></div>
+        <div class="dice">${s.rolls.map(face).join('')}</div>
+        ${s.over ? again(s) : '<div class="row"><button class="pri" id="roll">掷骰</button><button id="hold">停手存分</button></div>'}</div>`;
+      if (!s.over) { $('roll').onclick = () => post({ action: 'roll' }); $('hold').onclick = () => post({ action: 'hold' }); }
+    } else if (key === 'blackjack') {
+      const cards = (list) => list.map((c) => `<span class="card ${/[♥♦]/.test(c) ? 'red' : ''}">${esc(c)}</span>`).join('');
+      st.innerHTML = `<div class="panel"><h2>二十一点 · 第 ${s.round} 局 · 比分 你 ${s.score.user} : ${s.score.bot} TA</h2>
+        <div class="hint">TA（庄）${s.botValue != null ? `：${s.botValue} 点` : ''}</div><div class="cards">${cards(s.bot)}</div>
+        <div class="hint">你：${s.userValue} 点</div><div class="cards">${cards(s.user)}</div>
+        ${s.over ? again(s) : s.roundOver ? '<div class="row"><button class="pri" id="next">下一局</button><button id="end">不玩了</button></div>' : '<div class="row"><button class="pri" id="hit">要牌</button><button id="stand">停牌</button></div>'}</div>`;
+      if ($('hit')) { $('hit').onclick = () => post({ action: 'hit' }); $('stand').onclick = () => post({ action: 'stand' }); }
+      if ($('next')) { $('next').onclick = () => post({ action: 'next' }); $('end').onclick = () => post({ action: 'end' }); }
+    } else if (key === 'turtle_soup') {
+      st.innerHTML = `<div class="panel"><h2>海龟汤${s.title ? `「${esc(s.title)}」` : ''}</h2>
+        <div>${s.surface ? esc(s.surface) : '<span class="hint">TA 正在出题…</span>'}</div>
+        ${s.over ? `<p><b>汤底：</b>${esc(s.bottom || '')}</p>` : `<div class="row" style="margin-top:8px"><span class="hint">已问 ${s.qa.length} 个问题</span><button id="reveal">揭晓汤底</button></div>`}</div>`;
+      if ($('reveal')) $('reveal').onclick = () => { if (confirm('确定要看答案吗？')) post({ action: 'reveal' }); };
+    } else if (key === 'draw_guess') {
+      if (built !== `${key}:${s.word}:${s.over}`) {
+        built = `${key}:${s.word}:${s.over}`;
+        st.innerHTML = `<div class="panel"><h2>你画 TA 猜 · 题目：<b>${esc(s.word)}</b>（别写字哦）</h2>
+          <canvas id="cv" width="360" height="360"></canvas>
+          <div class="row" style="margin-top:8px"><button class="pri" id="guess">让 TA 猜</button><button id="clear">擦掉重画</button><button id="nextw">换一题</button><span class="hint" id="gs"></span></div></div>`;
+        setupCanvas();
+        $('guess').onclick = () => post({ action: 'guess', image: $('cv').toDataURL('image/jpeg', 0.7) });
+        $('clear').onclick = () => clearCanvas();
+        $('nextw').onclick = () => post({ action: 'next' });
+      }
+      $('gs').textContent = `猜了 ${s.guesses.length}/3 · TA 猜中 ${s.score.bot} 题`;
+      $('guess').disabled = Boolean(s.roundOver) || v.pending || !v.vision;
+    }
+    if (v.kind === 'game') built = key === 'draw_guess' ? built : key;
+  }
+  const again = (s) => (s.over ? `<p class="hint" style="text-align:center">这局结束了：${{ user: '你赢了 🎉', bot: 'TA 赢了', draw: '平局' }[s.winner] || ''}（想再来就回 App 再开一局）</p>` : '');
+
+  // ── 画布 ──
+  let ctx = null;
+  function setupCanvas() {
+    const cv = $('cv');
+    ctx = cv.getContext('2d');
+    clearCanvas();
+    ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#222';
+    let drawing = false;
+    const pos = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
+    cv.onpointerdown = (e) => { drawing = true; cv.setPointerCapture(e.pointerId); ctx.beginPath(); ctx.moveTo(...pos(e)); };
+    cv.onpointermove = (e) => { if (drawing) { ctx.lineTo(...pos(e)); ctx.stroke(); } };
+    cv.onpointerup = cv.onpointercancel = () => { drawing = false; };
+  }
+  function clearCanvas() { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 360, 360); }
+
+  // ── 截图压缩：最长边 ≤960，JPEG，控制在 ~170KB（宿主请求体上限 256KB） ──
+  async function shrink(file) {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(file); });
+    let side = 960; let q = 0.72; let out = '';
+    for (let k = 0; k < 6; k += 1) {
+      const scale = Math.min(1, side / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      out = c.toDataURL('image/jpeg', q);
+      if (out.length <= 230000) break;
+      side *= 0.8; q = Math.max(0.45, q - 0.08);
+    }
+    URL.revokeObjectURL(img.src);
+    return out;
+  }
+
+  $('send').onclick = () => { const t = $('say').value.trim(); if (t) { $('say').value = ''; post({ action: 'say', text: t }); } };
+  $('say').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) $('send').click(); });
+  $('leave').onclick = () => { if (confirm('离开房间？')) post({ action: 'leave' }); };
+  poll(true);
+})();
+</script>
+</body>
+</html>

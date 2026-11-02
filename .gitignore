@@ -1,38 +1,8 @@
-# Python and test caches
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.pytest_astrbot312/
-/.verify-shards/
-/.p4-tmp/
-
-# Local tooling artifacts
+node_modules/
+*.tmp
 *.orig
 *.rej
-*.patch
-*.tmp
 *.bak
-/.zcode/
-/.workbuddy/
-/build/
-/RELEASE_FILES.json
-/docs/PROMPTS_INVENTORY_20261018.xlsx
-/pages/陪伴小屋/shell-preview*.html
-/pages/陪伴小屋/theme-preview.html
-/pages/陪伴小屋/v2-surface-preview.html
-/pages/陪伴小屋/_probe-timeline.html
-
-# AstrBot host runtime data must never be packaged with this plugin.
+.DS_Store
+# 本地运行数据不进仓库
 /data/
-
-# Local release verification snapshots are not plugin source.
-/verification/
-/dist/
-
-# The Android companion terminal is maintained and distributed separately.
-/android/
-
-# Legacy standalone checkouts are kept locally for compatibility/testing only.
-# Boundary feedback and temporary emotion runtime are implemented in this core.
-/astrbot_plugin_nene_boundary/
-/astrbot_plugin_temp_emotion/

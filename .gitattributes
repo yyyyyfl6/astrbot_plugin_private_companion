@@ -4,18 +4,4 @@
 *.jpeg binary
 *.gif binary
 *.webp binary
-*.svg text eol=lf
-*.woff binary
-*.woff2 binary
-*.ttf binary
-*.otf binary
-*.mp3 binary
-*.wav binary
-*.ogg binary
-*.m4a binary
-*.mp4 binary
-*.zip binary
-*.pdf binary
-docs/V1_CONFIG_BY_SEGMENT_20260925.csv binary
-pages/陪伴小屋/assets/voxel-room.js -whitespace
-*.py whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+*.gz binary

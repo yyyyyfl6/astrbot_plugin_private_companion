@@ -1,0 +1,30 @@
+{
+  "id": "private-companion",
+  "name": "我会永远陪着你（QQ Agent 版）",
+  "version": "0.6.0",
+  "description": "原作 menglimi 的 AstrBot 插件「我会永远陪着你」的 QQ Agent 版：跟着当前人格过日子（生活长任务 / 梦 / 成长）、主动联系、私聊日记、熟人卡、互动纪念日、表达学习、手机连接（位置 / 状态 / 屏幕共享），手机上的一起房间与陪伴游戏，附「陪伴小屋」页面。",
+  "author": "menglimi（原作） · yyyyyfl6（QQ Agent 版）",
+  "homepage": "https://github.com/yyyyyfl6/astrbot_plugin_private_companion",
+  "apiVersion": 3,
+  "minVersion": "0.9.12",
+  "tags": [
+    "陪伴",
+    "社区"
+  ],
+  "capabilities": [
+    "tools",
+    "observe",
+    "schedule",
+    "storage",
+    "config",
+    "log",
+    "llm",
+    "context",
+    "wake",
+    "secrets",
+    "inbound",
+    "page"
+  ],
+  "downloadUrl": "https://raw.githubusercontent.com/yyyyyfl6/astrbot_plugin_private_companion/main/dist/private-companion-0.6.0.tar.gz",
+  "sha256": "d3582cbd48529790662e982f6b7b2dfd0413e2c422e11076032b925bc998be3f"
+}

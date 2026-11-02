@@ -1,0 +1,364 @@
+{
+  "id": "private-companion",
+  "apiVersion": 3,
+  "name": "我会永远陪着你（QQ Agent 版）",
+  "version": "0.6.0",
+  "description": "原作 menglimi 的 AstrBot 插件「我会永远陪着你」的 QQ Agent 版：跟着当前人格过日子（生活长任务 / 梦 / 成长）、主动联系、私聊日记、熟人卡、互动纪念日、表达学习、手机连接（位置 / 状态 / 屏幕共享），手机上的一起房间与陪伴游戏，附「陪伴小屋」页面。",
+  "author": "menglimi（原作） · yyyyyfl6（QQ Agent 移植）",
+  "homepage": "https://github.com/yyyyyfl6/astrbot_plugin_private_companion",
+  "entry": "index.mjs",
+  "engines": {
+    "minVersion": "0.9.12"
+  },
+  "capabilities": [
+    "tools",
+    "observe",
+    "schedule",
+    "storage",
+    "config",
+    "log",
+    "llm",
+    "context",
+    "wake",
+    "secrets",
+    "inbound",
+    "page"
+  ],
+  "tools": [
+    {
+      "name": "life_status",
+      "description": "查看你自己今天的生活：今日安排、此刻在做什么、心情、今天发生过的事。对方问\"你在干嘛\"\"今天过得怎么样\"\"今天干了啥\"时用，回答要以这里为准，不要临时编。",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "recall_diary",
+      "description": "翻你和对方的私聊日记（按日期记的\"那天发生了什么\"）。对方问\"我们上周聊了啥\"\"我之前说过要干嘛\"时用：给 date（YYYY-MM-DD 或 MM-DD）查某一天，给 keyword 按关键词找，都不给就返回最近几天。只在私聊里有效。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "某一天，如 2026-10-20 或 10-20"
+          },
+          "keyword": {
+            "type": "string",
+            "description": "关键词"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_card",
+      "description": "把对方在私聊里告诉你的事记进 TA 的熟人卡：希望你怎么称呼 TA（nickname）、生日（birthday，MM-DD）、喜欢的相处方式（style）、或者一条稳定的印象（impression，如\"不吃香菜\"）。只在对方明确说了时才记，不要猜。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "nickname": {
+            "type": "string",
+            "description": "TA 希望被怎么称呼"
+          },
+          "birthday": {
+            "type": "string",
+            "description": "生日 MM-DD"
+          },
+          "style": {
+            "type": "string",
+            "description": "TA 喜欢的相处方式"
+          },
+          "impression": {
+            "type": "string",
+            "description": "一条关于 TA 的稳定印象（≤20 字）"
+          }
+        }
+      }
+    }
+  ],
+  "schedule": [
+    {
+      "name": "tick",
+      "everyMs": 300000
+    }
+  ],
+  "settings": {
+    "groups": [
+      {
+        "key": "basic",
+        "title": "陪伴对象",
+        "description": "只陪这几个人（私聊）。最多 4 个。",
+        "fields": [
+          {
+            "key": "targets",
+            "label": "陪伴对象 QQ（逗号分隔）",
+            "type": "text",
+            "required": true,
+            "placeholder": "如 10001, 20002"
+          },
+          {
+            "key": "quietStart",
+            "label": "免打扰 / 睡觉开始",
+            "type": "text",
+            "default": "23:30",
+            "placeholder": "HH:MM"
+          },
+          {
+            "key": "quietEnd",
+            "label": "免打扰结束（起床）",
+            "type": "text",
+            "default": "08:00",
+            "placeholder": "HH:MM"
+          }
+        ]
+      },
+      {
+        "key": "llm",
+        "title": "副 API（后台长任务用）",
+        "description": "排日程、推进生活、写日记都用它，建议选便宜的模型。供应商 id 在 设置 → 模型 API 的供应商卡片上（custom_ 开头）。",
+        "fields": [
+          {
+            "key": "llmProvider",
+            "label": "供应商 id",
+            "type": "text",
+            "help": "留空 = 自动：先找提供该模型的供应商，没有就用主模型那一家",
+            "placeholder": "custom_xxxx"
+          },
+          {
+            "key": "llmModel",
+            "label": "模型",
+            "type": "text",
+            "help": "留空 = 跟主模型相同（不推荐：后台任务会花主模型的钱）",
+            "placeholder": "如 deepseek-chat"
+          }
+        ]
+      },
+      {
+        "key": "role",
+        "title": "角色与生活",
+        "fields": [
+          {
+            "key": "roleName",
+            "label": "角色名（读不到人格时才用）",
+            "type": "text",
+            "placeholder": "如 小鲸鱼"
+          },
+          {
+            "key": "roleNote",
+            "label": "补充设定（可空，叠加在人格卡之后）",
+            "type": "text",
+            "help": "比如作息、住在哪、最近在忙什么；人格卡里没写的生活细节",
+            "placeholder": "如：大二学生，学美术，喜欢猫和夜跑，住学校宿舍"
+          },
+          {
+            "key": "lifeStepMinutes",
+            "label": "生活推进间隔（分钟，实际会上下浮动）",
+            "type": "number",
+            "default": 90,
+            "min": 30,
+            "max": 360
+          },
+          {
+            "key": "handoffEnabled",
+            "label": "多人格切换时交接陪伴记录（旧人格自己的生活、今天主动过几次、问过的事；转述，非亲历）",
+            "type": "boolean",
+            "default": true
+          }
+        ],
+        "description": "后台排日程、推进生活、做梦、记成长都用**这个会话当前正在运行的人格**（与主对话同一张角色卡，多人格切换后跟着变）。下面两项只是补充，可以留空。"
+      },
+      {
+        "key": "proactive",
+        "title": "主动联系",
+        "fields": [
+          {
+            "key": "proactive",
+            "label": "允许主动找对方",
+            "type": "boolean",
+            "default": true
+          },
+          {
+            "key": "minGapMinutes",
+            "label": "两次主动之间最少隔（分钟）",
+            "type": "number",
+            "default": 120,
+            "min": 30,
+            "max": 1440
+          },
+          {
+            "key": "maxGapMinutes",
+            "label": "最多隔（分钟）",
+            "type": "number",
+            "default": 360,
+            "min": 60,
+            "max": 2880,
+            "help": "每次在最少与最多之间随机取，间隔不规则"
+          },
+          {
+            "key": "dailyMax",
+            "label": "每人每天最多主动几次",
+            "type": "number",
+            "default": 3,
+            "min": 1,
+            "max": 10
+          },
+          {
+            "key": "waitReply",
+            "label": "上一条没回就不再追（24 小时内）",
+            "type": "boolean",
+            "default": true
+          },
+          {
+            "key": "morning",
+            "label": "起床后道早安",
+            "type": "boolean",
+            "default": true
+          }
+        ]
+      },
+      {
+        "key": "phone",
+        "title": "手机连接（安卓陪伴终端）",
+        "description": "对方手机上的陪伴终端 App 把位置 / 电量 / 在用的应用 / 运动健康推过来，角色就知道 TA 此刻的状态；一起房间、游戏与屏幕共享见下一组。App 里填网关地址：开了下面的「独立端口」就填 http://服务器:端口，否则填 http://控制台地址/plugin-hooks/private-companion和下面的配对令牌。数据只放内存、按时过期，不给模型坐标。",
+        "fields": [
+          {
+            "key": "phoneEnabled",
+            "label": "启用手机连接",
+            "type": "boolean",
+            "default": false
+          },
+          {
+            "key": "inboundListen",
+            "label": "给手机单开一个端口（只提供本插件的路径，不暴露控制台；改了要重启服务）",
+            "type": "boolean",
+            "default": false
+          },
+          {
+            "key": "inboundPort",
+            "label": "独立端口",
+            "type": "number",
+            "default": 6322,
+            "min": 1024,
+            "max": 65535,
+            "help": "要能从手机访问（安全组 / 防火墙放行，或放在 HTTPS 反代后面）"
+          },
+          {
+            "key": "phonePairingToken",
+            "label": "配对令牌（≥24 位随机串，手机端填同一个）",
+            "type": "secret",
+            "help": "换令牌后已配对的手机要重新配对"
+          },
+          {
+            "key": "phoneUser",
+            "label": "绑定的 QQ（留空 = 第一个陪伴对象）",
+            "type": "text",
+            "placeholder": "10001"
+          },
+          {
+            "key": "phoneLocation",
+            "label": "共享位置（地点名 / 标签，不给坐标）",
+            "type": "boolean",
+            "default": true
+          },
+          {
+            "key": "phoneActivity",
+            "label": "共享正在用的应用（私密类自动隐藏）",
+            "type": "boolean",
+            "default": false
+          },
+          {
+            "key": "phoneHealth",
+            "label": "共享运动健康摘要",
+            "type": "boolean",
+            "default": false
+          },
+          {
+            "key": "phoneEvents",
+            "label": "到了新地方 / 电量很低时主动关心",
+            "type": "boolean",
+            "default": true
+          }
+        ]
+      },
+      {
+        "key": "rooms",
+        "title": "一起房间 · 游戏 · 屏幕共享（手机）",
+        "description": "从手机 App 开「一起看 / 一起读 / 一起工作」房间、玩陪伴游戏（井字棋、五子棋、掷骰竞分、二十一点、海龟汤、你画我猜），或共享手机屏幕。房间页面只在上面的「独立端口」上提供；角色在房间里说话、出题、看图都用副 API。视频 / 语音通话与中国象棋暂不提供。",
+        "fields": [
+          {
+            "key": "roomsEnabled",
+            "label": "允许从手机开一起房间与游戏（需要先启用手机连接并单开端口）",
+            "type": "boolean",
+            "default": false
+          },
+          {
+            "key": "publicBaseUrl",
+            "label": "房间公开地址（可空）",
+            "type": "text",
+            "placeholder": "如 https://companion.example.com",
+            "help": "留空 = 按手机请求的地址自动拼；放在 HTTPS 反向代理后面、或手机用的地址和服务器看到的不一样时填"
+          },
+          {
+            "key": "roomVision",
+            "label": "让角色看图（一起工作的截图、你画我猜、屏幕共享；副 API 的模型要支持看图）",
+            "type": "boolean",
+            "default": false
+          },
+          {
+            "key": "screenEnabled",
+            "label": "接收手机屏幕共享（只留最新一帧在内存；没开房间时每 10 分钟看一眼，记一句\"TA 在做什么\"进背景）",
+            "type": "boolean",
+            "default": false
+          }
+        ]
+      },
+      {
+        "key": "learn",
+        "title": "表达学习与成长",
+        "fields": [
+          {
+            "key": "exprEnabled",
+            "label": "表达学习：从别人的说话方式里学（会读群聊里别人的话；学到的要在「陪伴小屋」里审核后才用）",
+            "type": "boolean",
+            "default": false
+          },
+          {
+            "key": "growthEnabled",
+            "label": "成长记录：角色在自己的生活里慢慢学会东西",
+            "type": "boolean",
+            "default": true
+          }
+        ]
+      },
+      {
+        "key": "diary",
+        "title": "私聊日记",
+        "fields": [
+          {
+            "key": "diaryEnabled",
+            "label": "按日期记私聊日记",
+            "type": "boolean",
+            "default": true
+          },
+          {
+            "key": "diaryDays",
+            "label": "最近几天的日记进背景",
+            "type": "number",
+            "default": 3,
+            "min": 0,
+            "max": 7
+          }
+        ]
+      }
+    ]
+  },
+  "page": {
+    "entry": "page.html",
+    "title": "陪伴小屋"
+  },
+  "inbound": {
+    "headers": [
+      "x-companion-mobile-token"
+    ]
+  }
+}
