@@ -39,6 +39,8 @@
 
 ## 安装
 
+> 接入要求、注意事项与自查清单见 [INTEGRATION.md](INTEGRATION.md)。
+
 需要 QQ Agent **0.9.12+ 且支持插件接口 apiVersion 3**（`llm` / `context` / `wake` / `inbound` / `page` 五项能力，
 以及 inbound 的文本响应与 `inbound.headers`、`llm` 的图片输入，见 qq-agent-plus 的 `docs/PLUGINS.md`）。
 
