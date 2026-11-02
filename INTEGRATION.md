@@ -28,7 +28,7 @@
   - 插件接口 v3：`llm` / `context` / `wake` / `inbound` / `page` 五项能力；
   - inbound 的通用补丁：manifest `inbound.headers`、文本 / 网页响应（HTML **只在插件独立端口**上给）、请求带 `via`；
   - `cap.llm.complete` 图片输入（user 消息 `images: [data:image/…]`，每次 ≤2 张）；
-  - 人格设定图（见第五节）。
+  - 人格设定图（见 4.2、5.4）。
 - 旧版宿主装这个插件会在「apiVersion 不匹配」或缺能力时直接拒载，不会半残地跑。
 
 ### 2.2 运行环境
